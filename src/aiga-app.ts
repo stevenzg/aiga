@@ -228,7 +228,7 @@ export class AigaAppElement extends HTMLElement {
     this.shadow.adoptedStyleSheets = [style];
 
     this.container = document.createElement('div');
-    this.container.className = 'mf-container';
+    this.container.className = 'aiga-container';
     this.shadow.appendChild(this.container);
   }
 
@@ -418,8 +418,8 @@ export class AigaAppElement extends HTMLElement {
     if (!this.container) return;
     this.clearContainer();
     const loading = document.createElement('div');
-    loading.className = 'mf-loading';
-    loading.innerHTML = '<div class="mf-spinner"></div>Loading application\u2026';
+    loading.className = 'aiga-loading';
+    loading.innerHTML = '<div class="aiga-spinner"></div>Loading application\u2026';
     this.container.appendChild(loading);
   }
 
@@ -427,7 +427,7 @@ export class AigaAppElement extends HTMLElement {
     if (!this.container) return;
     this.clearContainer();
     const el = document.createElement('div');
-    el.className = 'mf-error';
+    el.className = 'aiga-error';
     el.textContent = `Failed to load application: ${error.message}`;
     this.container.appendChild(el);
 

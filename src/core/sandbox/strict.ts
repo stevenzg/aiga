@@ -63,7 +63,7 @@ export class StrictSandbox implements SandboxAdapter {
     // Create Shadow DOM host for layout encapsulation.
     const host = document.createElement('div');
     host.setAttribute('data-aiga-strict', app.name);
-    host.style.cssText = 'display:block;width:100%;position:relative;';
+    host.style.cssText = 'display:block;width:100%;height:100%;position:relative;';
     container.appendChild(host);
 
     const shadow = host.attachShadow({ mode: 'open' });
