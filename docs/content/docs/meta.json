@@ -14,6 +14,7 @@
     "---Testing---",
     "test-scenarios",
     "---Interactive---",
-    "demos"
+    "demos",
+    "live-demo"
   ]
 }
