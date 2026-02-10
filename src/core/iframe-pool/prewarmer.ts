@@ -153,9 +153,9 @@ export class Prewarmer {
   }
 
   private schedulePrewarm(currentPath: string): void {
-    if (this.idleCallbackId !== null) {
-      this.cancelIdle(this.idleCallbackId);
-    }
+    // Don't cancel an already-scheduled callback; let it complete to avoid starvation
+    // under rapid navigation. Just update the path for the next invocation.
+    if (this.idleCallbackId !== null) return;
 
     this.idleCallbackId = this.requestIdle(() => {
       this.idleCallbackId = null;

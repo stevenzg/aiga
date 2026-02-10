@@ -165,6 +165,7 @@ export class LightSandbox implements SandboxAdapter {
         // External scripts: load normally.
         const newScript = document.createElement('script');
         newScript.src = script.src;
+        newScript.onerror = () => console.error(`[aiga] Failed to load script: ${script.src}`);
         for (const attr of script.attributes) {
           if (attr.name !== 'src') {
             newScript.setAttribute(attr.name, attr.value);

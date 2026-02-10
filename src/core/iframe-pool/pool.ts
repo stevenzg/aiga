@@ -109,6 +109,7 @@ export class IframePool {
 
   /** Return an iframe to the pool for reuse. */
   release(el: HTMLIFrameElement): void {
+    if (this.disposed) return;
     const entry = this.pool.find((p) => p.el === el);
     if (!entry) return;
 

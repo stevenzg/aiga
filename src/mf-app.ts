@@ -115,11 +115,17 @@ export class MfAppElement extends HTMLElement {
     this.syncAppState();
 
     if (this.src) {
-      // Serialize lifecycle: wait for any pending operation to complete.
+      // Capture keepAlive state atomically before queuing in the lifecycle lock,
+      // so a concurrent disconnectedCallback can't change it before execution.
+      const shouldRestore = this.inKeepAlive;
+      const appId = this.app.id;
+
       this.lifecycleLock = this.lifecycleLock.then(() => {
-        const aiga = Aiga.getInstance();
-        if (this.inKeepAlive && aiga.keepAlive.has(this.app.id)) {
-          return this.restoreFromKeepAlive();
+        if (shouldRestore) {
+          const aiga = Aiga.getInstance();
+          if (aiga.keepAlive.has(appId)) {
+            return this.restoreFromKeepAlive();
+          }
         }
         return this.mount();
       });
@@ -232,8 +238,9 @@ export class MfAppElement extends HTMLElement {
 
       this.app.container = this.container;
 
-      // Set up overlay layer for strict/light modes.
-      if (level === 'strict' || level === 'light') {
+      // Set up overlay layer for strict mode only.
+      // Light sandbox creates its own overlay internally.
+      if (level === 'strict') {
         this.overlay = new OverlayLayer(this.app.id);
         this.overlay.observe(this.container);
       }

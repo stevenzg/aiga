@@ -82,12 +82,11 @@ export class OverlayLayer {
    * Creates a DOM element from HTML and places it in the overlay layer.
    */
   addOverlayFromHtml(html: string, id?: string): HTMLElement | null {
-    const temp = document.createElement('div');
-    temp.innerHTML = html;
-    const el = temp.firstElementChild as HTMLElement | null;
+    const parsed = new DOMParser().parseFromString(html, 'text/html');
+    const el = parsed.body.firstElementChild as HTMLElement | null;
     if (!el) return null;
     if (id) el.id = id;
-    this.teleport(el);
+    this.teleport(document.adoptNode(el));
     return el;
   }
 

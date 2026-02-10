@@ -33,6 +33,7 @@ export class StrictSandbox implements SandboxAdapter {
   private resizeListeners = new Map<string, (e: MessageEvent) => void>();
   private resizeObservers = new Map<string, ResizeObserver>();
   private bridgeCleanups = new Map<string, () => void>();
+  private loadListeners = new Map<string, () => void>();
   private appOrigins = new Map<string, string>();
 
   constructor(private pool: IframePool) {}
@@ -142,6 +143,14 @@ export class StrictSandbox implements SandboxAdapter {
       this.resizeListeners.delete(app.id);
     }
 
+    // Clean up load listener from setupAutoResize.
+    const iframe = this.iframes.get(app.id);
+    const loadListener = this.loadListeners.get(app.id);
+    if (loadListener && iframe) {
+      iframe.removeEventListener('load', loadListener);
+      this.loadListeners.delete(app.id);
+    }
+
     // Clean up app message listener.
     const listener = this.messageListeners.get(app.id);
     if (listener) {
@@ -159,7 +168,6 @@ export class StrictSandbox implements SandboxAdapter {
 
     // Preserve iframe reference for keepAlive restore.
     // Don't release to pool or delete — destroy() handles permanent cleanup.
-    const iframe = this.iframes.get(app.id);
     if (iframe) {
       app.iframe = iframe;
     }
@@ -225,9 +233,12 @@ export class StrictSandbox implements SandboxAdapter {
    * plus ResizeObserver for same-origin iframes.
    */
   private setupAutoResize(appId: string, iframe: HTMLIFrameElement): void {
+    const expectedOrigin = this.appOrigins.get(appId);
+
     // Message-based resize listener (cleaned up on unmount).
     const onMessage = (e: MessageEvent) => {
       if (e.source !== iframe.contentWindow) return;
+      if (expectedOrigin && expectedOrigin !== '*' && e.origin !== expectedOrigin) return;
       if (e.data?.__aiga_resize) {
         iframe.style.height = `${e.data.height}px`;
       }
@@ -238,6 +249,7 @@ export class StrictSandbox implements SandboxAdapter {
     // Same-origin ResizeObserver fallback (one-time setup on load).
     const onLoad = () => {
       iframe.removeEventListener('load', onLoad);
+      this.loadListeners.delete(appId);
       try {
         const doc = iframe.contentDocument;
         if (doc) {
@@ -253,5 +265,6 @@ export class StrictSandbox implements SandboxAdapter {
       }
     };
     iframe.addEventListener('load', onLoad);
+    this.loadListeners.set(appId, onLoad);
   }
 }

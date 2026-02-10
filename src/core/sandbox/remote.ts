@@ -33,6 +33,7 @@ export class RemoteSandbox implements SandboxAdapter {
   private messageListeners = new Map<string, (e: MessageEvent) => void>();
   private resizeListeners = new Map<string, (e: MessageEvent) => void>();
   private resizeObservers = new Map<string, ResizeObserver>();
+  private loadListeners = new Map<string, () => void>();
   private appOrigins = new Map<string, string>();
 
   async mount(app: AppInstance, container: HTMLElement): Promise<void> {
@@ -97,6 +98,14 @@ export class RemoteSandbox implements SandboxAdapter {
     if (resizeObserver) {
       resizeObserver.disconnect();
       this.resizeObservers.delete(appId);
+    }
+
+    // Clean up load listener from setupAutoResize.
+    const iframe = this.iframes.get(appId);
+    const loadListener = this.loadListeners.get(appId);
+    if (loadListener && iframe) {
+      iframe.removeEventListener('load', loadListener);
+      this.loadListeners.delete(appId);
     }
 
     const listener = this.messageListeners.get(appId);
@@ -164,9 +173,12 @@ export class RemoteSandbox implements SandboxAdapter {
   }
 
   private setupAutoResize(appId: string, iframe: HTMLIFrameElement): void {
+    const expectedOrigin = this.appOrigins.get(appId);
+
     // Message-based resize (cleaned up on unmount/destroy).
     const onMessage = (e: MessageEvent) => {
       if (e.source !== iframe.contentWindow) return;
+      if (expectedOrigin && expectedOrigin !== '*' && e.origin !== expectedOrigin) return;
       if (e.data?.__aiga_resize) {
         iframe.style.height = `${e.data.height}px`;
       }
@@ -177,6 +189,7 @@ export class RemoteSandbox implements SandboxAdapter {
     // Same-origin fallback (one-time setup on load).
     const onLoad = () => {
       iframe.removeEventListener('load', onLoad);
+      this.loadListeners.delete(appId);
       try {
         const doc = iframe.contentDocument;
         if (doc) {
@@ -191,5 +204,6 @@ export class RemoteSandbox implements SandboxAdapter {
       }
     };
     iframe.addEventListener('load', onLoad);
+    this.loadListeners.set(appId, onLoad);
   }
 }

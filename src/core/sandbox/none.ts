@@ -39,6 +39,7 @@ export class NoneSandbox implements SandboxAdapter {
       const newScript = document.createElement('script');
       if (script.src) {
         newScript.src = script.src;
+        newScript.onerror = () => console.error(`[aiga] Failed to load script: ${script.src}`);
       } else {
         newScript.textContent = script.textContent;
       }
