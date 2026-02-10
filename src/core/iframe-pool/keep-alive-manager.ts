@@ -31,6 +31,11 @@ export interface KeepAliveManagerOptions {
    * automatically promoted to `high` priority. Defaults to 3.
    */
   autoPromoteAfter?: number;
+  /**
+   * Callback invoked when an entry is evicted. Use this to clean up
+   * the evicted iframe (e.g., navigate to about:blank and remove).
+   */
+  onEvict?: (entry: KeepAliveEntry) => void;
 }
 
 const PRIORITY_WEIGHT: Record<KeepAlivePriority, number> = {
@@ -43,10 +48,12 @@ export class KeepAliveManager {
   private entries = new Map<string, KeepAliveEntry>();
   private maxAlive: number;
   private autoPromoteAfter: number;
+  private onEvict: ((entry: KeepAliveEntry) => void) | null;
 
   constructor(options?: KeepAliveManagerOptions) {
     this.maxAlive = options?.maxAlive ?? 5;
     this.autoPromoteAfter = options?.autoPromoteAfter ?? 3;
+    this.onEvict = options?.onEvict ?? null;
   }
 
   /**
@@ -141,6 +148,7 @@ export class KeepAliveManager {
 
   /**
    * Evict the lowest-priority, least-recently-used entry.
+   * Calls the onEvict callback to clean up the evicted iframe.
    * @returns The evicted app ID, or `null` if empty.
    */
   private evictOne(): string | null {
@@ -155,6 +163,19 @@ export class KeepAliveManager {
 
     const victim = sorted[0];
     this.entries.delete(victim.appId);
+
+    // Clean up the evicted iframe via callback.
+    if (this.onEvict) {
+      try {
+        this.onEvict(victim);
+      } catch (err) {
+        console.error('[aiga] Error in keep-alive eviction callback:', err);
+      }
+    } else {
+      // Default cleanup: destroy the iframe if present.
+      this.destroyIframe(victim.iframe);
+    }
+
     return victim.appId;
   }
 
@@ -168,8 +189,22 @@ export class KeepAliveManager {
     }
   }
 
-  /** Dispose all entries. */
+  /** Destroy an iframe element (navigate to blank, remove from DOM). */
+  private destroyIframe(iframe: HTMLIFrameElement | null): void {
+    if (!iframe) return;
+    try {
+      iframe.src = 'about:blank';
+      iframe.remove();
+    } catch {
+      // noop — iframe may already be detached.
+    }
+  }
+
+  /** Dispose all entries and clean up their iframes. */
   dispose(): void {
+    for (const entry of this.entries.values()) {
+      this.destroyIframe(entry.iframe);
+    }
     this.entries.clear();
   }
 }

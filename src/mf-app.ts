@@ -38,6 +38,13 @@ export class MfAppElement extends HTMLElement {
   private shadow: ShadowRoot;
   private mounted = false;
   private inKeepAlive = false;
+  private rendered = false;
+
+  /**
+   * Lifecycle serialization lock.
+   * Ensures mount/unmount/remount operations don't race each other.
+   */
+  private lifecycleLock: Promise<void> = Promise.resolve();
 
   constructor() {
     super();
@@ -108,18 +115,19 @@ export class MfAppElement extends HTMLElement {
     this.syncAppState();
 
     if (this.src) {
-      // Check if we're restoring from keep-alive.
-      const aiga = Aiga.getInstance();
-      if (this.inKeepAlive && aiga.keepAlive.has(this.app.id)) {
-        this.restoreFromKeepAlive();
-      } else {
-        this.mount();
-      }
+      // Serialize lifecycle: wait for any pending operation to complete.
+      this.lifecycleLock = this.lifecycleLock.then(() => {
+        const aiga = Aiga.getInstance();
+        if (this.inKeepAlive && aiga.keepAlive.has(this.app.id)) {
+          return this.restoreFromKeepAlive();
+        }
+        return this.mount();
+      });
     }
   }
 
   disconnectedCallback(): void {
-    this.unmountApp();
+    this.lifecycleLock = this.lifecycleLock.then(() => this.unmountApp());
   }
 
   attributeChangedCallback(
@@ -133,7 +141,7 @@ export class MfAppElement extends HTMLElement {
       case 'src':
         this.syncAppState();
         if (this.isConnected && newValue) {
-          this.remount();
+          this.lifecycleLock = this.lifecycleLock.then(() => this.remount());
         }
         break;
       case 'sandbox':
@@ -147,6 +155,10 @@ export class MfAppElement extends HTMLElement {
   // --- Internal ---
 
   private render(): void {
+    // Prevent duplicate rendering on reconnect.
+    if (this.rendered) return;
+    this.rendered = true;
+
     const style = new CSSStyleSheet();
     style.replaceSync(`
       :host {
@@ -231,12 +243,11 @@ export class MfAppElement extends HTMLElement {
 
       await this.adapter.mount(this.app, this.container);
 
-      // Set up RPC channel for iframe-based sandboxes.
+      // Set up RPC channel for iframe-based sandboxes with origin-scoped targeting.
       if (level === 'strict' || level === 'remote') {
         this.setupRpc();
       }
 
-      // Record visit for keep-alive priority tracking.
       aiga.keepAlive.recordVisit(this.app.id);
 
       this.mounted = true;
@@ -269,21 +280,15 @@ export class MfAppElement extends HTMLElement {
       this.overlay = null;
 
       if (this.keepAlive) {
-        // Enter keep-alive state: unmount but preserve internal state.
         await this.adapter.unmount(this.app);
         this.inKeepAlive = true;
 
-        // Register with the KeepAliveManager (may evict another app).
         const aiga = Aiga.getInstance();
-        const evictedId = aiga.keepAlive.add(
+        aiga.keepAlive.add(
           this.app.id,
           this.app.name,
           this.app.iframe,
         );
-
-        if (evictedId) {
-          console.debug(`[aiga] Evicted keep-alive app "${evictedId}" to stay within maxAlive limit.`);
-        }
 
         this.dispatchEvent(
           new CustomEvent('keep-alive-start', {
@@ -349,7 +354,8 @@ export class MfAppElement extends HTMLElement {
     const iframe = this.container?.querySelector('iframe') ??
       this.shadow.querySelector('iframe');
     if (iframe?.contentWindow) {
-      this.rpc = new RpcChannel(iframe.contentWindow);
+      // Use origin-scoped RPC channel instead of wildcard.
+      this.rpc = RpcChannel.forApp(iframe.contentWindow, this.app.src);
     }
   }
 

@@ -50,7 +50,6 @@ export class IframePool {
     el.src = 'about:blank';
     el.setAttribute('data-aiga-pooled', '');
     el.style.cssText = 'border:none;width:100%;height:100%;display:block;';
-    // Security: restrict capabilities by default; adapters can override.
     el.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups');
     this.hostEl.appendChild(el);
 
@@ -82,9 +81,16 @@ export class IframePool {
         // LRU eviction: recycle the oldest idle iframe.
         entry = this.evictLRU();
         if (!entry) {
-          // All at capacity and in use — force-create (exceeds max temporarily).
+          // All at capacity and in use — force-create temporarily.
           entry = this.createPooledIframe();
           this.pool.push(entry);
+          console.warn(
+            `[aiga] Pool exceeded maxSize (${this.opts.maxSize}). ` +
+            `Current size: ${this.pool.length}. Will shrink on release.`,
+          );
+        } else {
+          // Reset the evicted iframe before reuse.
+          this.resetIframe(entry);
         }
       }
     }
@@ -113,13 +119,22 @@ export class IframePool {
     // Reset the iframe.
     this.resetIframe(entry);
 
+    // If we've exceeded maxSize (from force-create), destroy excess.
+    if (this.pool.length > this.opts.maxSize) {
+      const idx = this.pool.indexOf(entry);
+      if (idx !== -1) {
+        this.destroyEntry(entry);
+        this.pool.splice(idx, 1);
+      }
+      return;
+    }
+
     // Move it back to the hidden host.
     if (el.parentElement !== this.hostEl) {
       el.remove();
       this.hostEl.appendChild(el);
     }
 
-    // Replenish pool if we're below initial size.
     this.replenish();
   }
 
@@ -144,8 +159,7 @@ export class IframePool {
   private replenish(): void {
     const idleCount = this.pool.filter((p) => !p.inUse).length;
     const deficit = this.opts.initialSize - idleCount;
-    if (deficit > 0) {
-      // Use requestIdleCallback if available, else setTimeout.
+    if (deficit > 0 && this.pool.length < this.opts.maxSize) {
       const schedule =
         typeof requestIdleCallback !== 'undefined'
           ? requestIdleCallback
@@ -157,11 +171,12 @@ export class IframePool {
     }
   }
 
-  /** Reset an iframe to blank state. */
+  /** Reset an iframe to blank state for reuse. */
   private resetIframe(entry: PooledIframe): void {
     try {
       entry.el.src = 'about:blank';
       entry.el.removeAttribute('name');
+      entry.el.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups');
     } catch {
       // Cross-origin access may throw; safe to ignore.
     }

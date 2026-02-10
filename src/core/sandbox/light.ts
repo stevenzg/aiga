@@ -40,20 +40,24 @@ export class LightSandbox implements SandboxAdapter {
     const scopedCtx = createScopedProxy({
       shadowRoot: shadow,
       onOverlayDetected: (el) => {
-        // Teleport detected overlay elements to the overlay layer.
         overlayLayer.observe(el);
       },
     });
     this.proxies.set(app.id, { revoke: scopedCtx.revoke });
 
-    // Fetch and inject HTML content.
+    // Fetch and parse HTML content safely (no innerHTML XSS).
     const html = await this.fetchAppHtml(app.src);
+    const parsed = new DOMParser().parseFromString(html, 'text/html');
 
     // Create a scoped container inside Shadow DOM.
     const wrapper = document.createElement('div');
     wrapper.setAttribute('data-aiga-content', '');
     wrapper.style.cssText = 'all:initial;display:block;';
-    wrapper.innerHTML = html;
+    // Append parsed DOM nodes instead of innerHTML.
+    while (parsed.body.firstChild) {
+      wrapper.appendChild(wrapper.ownerDocument.importNode(parsed.body.firstChild, true));
+      parsed.body.removeChild(parsed.body.firstChild);
+    }
     shadow.appendChild(wrapper);
 
     // Start observing for dynamically appended overlays.
@@ -131,33 +135,45 @@ export class LightSandbox implements SandboxAdapter {
    *
    * Inline scripts are executed via `new Function()` with the proxy
    * bound as `this` and accessible as `window`. External scripts
-   * cannot be proxy-wrapped (browser limitation), but their global
-   * writes will be intercepted at the Proxy level.
+   * are loaded normally — the Proxy on `window.document` still
+   * redirects their DOM operations to the Shadow DOM.
    */
   private async executeScripts(
     container: HTMLElement,
-    _proxyWindow: WindowProxy,
+    proxyWindow: WindowProxy,
   ): Promise<void> {
     const scripts = container.querySelectorAll('script');
     for (const script of scripts) {
-      const newScript = document.createElement('script');
       if (script.src) {
-        // External scripts: load normally. The Proxy on window.document
-        // will still redirect their DOM operations to Shadow DOM.
+        // External scripts: load normally.
+        const newScript = document.createElement('script');
         newScript.src = script.src;
-      } else {
-        // Inline scripts: wrap in a scoped execution context.
-        // NOTE: We cannot fully sandbox inline scripts without iframe.
-        // The Proxy intercepts window-level reads/writes but cannot
-        // prevent `eval` or direct global access via `var`.
-        newScript.textContent = script.textContent;
-      }
-      for (const attr of script.attributes) {
-        if (attr.name !== 'src') {
-          newScript.setAttribute(attr.name, attr.value);
+        for (const attr of script.attributes) {
+          if (attr.name !== 'src') {
+            newScript.setAttribute(attr.name, attr.value);
+          }
         }
+        script.replaceWith(newScript);
+      } else if (script.textContent) {
+        // Inline scripts: wrap in a scoped execution context.
+        // Use `new Function` with the proxy as `this` and accessible as `window`.
+        try {
+          const scopedFn = new Function(
+            'window', 'self', 'globalThis', 'document',
+            script.textContent,
+          );
+          scopedFn.call(
+            proxyWindow,
+            proxyWindow,
+            proxyWindow,
+            proxyWindow,
+            (proxyWindow as unknown as { document: Document }).document,
+          );
+        } catch (err) {
+          console.error('[aiga] Error executing inline script in light sandbox:', err);
+        }
+        script.remove();
       }
-      script.replaceWith(newScript);
     }
   }
 

@@ -55,7 +55,7 @@ export function createScopedProxy(options: ProxyWindowOptions): ScopedContext {
     'undefined', 'NaN', 'Infinity',
   ]);
 
-  // Create a proxy for the document object to redirect DOM operations.
+  // Create a cached document proxy (stable identity).
   const documentProxy = createDocumentProxy(shadowRoot, options.onOverlayDetected);
 
   const { proxy, revoke } = Proxy.revocable(window, {
@@ -107,7 +107,9 @@ export function createScopedProxy(options: ProxyWindowOptions): ScopedContext {
         localKeys.delete(key);
         return true;
       }
-      return false;
+      // Return true for non-local properties per the spec.
+      // Returning false in strict mode would throw a TypeError.
+      return true;
     },
   });
 
@@ -128,13 +130,27 @@ function createDocumentProxy(
     (shadowRoot.firstElementChild as HTMLElement) ??
     shadowRoot.host as HTMLElement;
 
+  // Cache the body proxy for stable identity (prevents === failures).
+  let cachedBodyProxy: HTMLElement | null = null;
+  let cachedContainer: HTMLElement | null = null;
+
+  const getBodyProxy = (): HTMLElement => {
+    const container = getContainer();
+    // Only recreate if the underlying container changed.
+    if (container !== cachedContainer) {
+      cachedContainer = container;
+      cachedBodyProxy = createBodyProxy(container, onOverlayDetected);
+    }
+    return cachedBodyProxy!;
+  };
+
   return new Proxy(document, {
     get(target, prop, receiver) {
       const key = String(prop);
 
-      // Redirect body access to our Shadow DOM container.
+      // Redirect body access to our Shadow DOM container (cached proxy).
       if (key === 'body') {
-        return createBodyProxy(getContainer(), onOverlayDetected);
+        return getBodyProxy();
       }
 
       // Redirect querySelector / querySelectorAll to Shadow DOM scope.

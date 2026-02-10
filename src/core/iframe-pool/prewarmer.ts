@@ -48,6 +48,7 @@ export class Prewarmer {
   private frequencyAnalysis: boolean;
   private pool: IframePool;
   private prewarmedUrls = new Set<string>();
+  private prefetchLinks = new Map<string, HTMLLinkElement>();
   private idleCallbackId: number | null = null;
 
   constructor(pool: IframePool, options?: PrewarmerOptions) {
@@ -56,7 +57,6 @@ export class Prewarmer {
     this.maxPrewarm = options?.maxPrewarm ?? 2;
     this.frequencyAnalysis = options?.frequencyAnalysis ?? true;
 
-    // Build route lookup map.
     for (const route of this.routes) {
       this.routeMap.set(route.path, route);
     }
@@ -87,7 +87,6 @@ export class Prewarmer {
       this.navHistory = this.navHistory.slice(-100);
     }
 
-    // Schedule predictive prewarming during idle time.
     this.schedulePrewarm(path);
   }
 
@@ -96,7 +95,7 @@ export class Prewarmer {
    * Uses adjacency analysis + frequency analysis.
    */
   predict(currentPath: string): string[] {
-    const candidates = new Map<string, number>(); // appSrc → score
+    const candidates = new Map<string, number>();
 
     // Strategy 1: Route adjacency.
     const currentRoute = this.routeMap.get(currentPath);
@@ -114,7 +113,6 @@ export class Prewarmer {
 
     // Strategy 2: Frequency analysis.
     if (this.frequencyAnalysis) {
-      // Find transition patterns: after visiting `currentPath`, which paths follow?
       for (let i = 0; i < this.navHistory.length - 1; i++) {
         if (this.navHistory[i].path === currentPath) {
           const nextPath = this.navHistory[i + 1].path;
@@ -128,7 +126,6 @@ export class Prewarmer {
         }
       }
 
-      // Boost globally frequent routes.
       for (const route of this.routes) {
         const freq = this.frequencyCounts.get(route.path) ?? 0;
         if (freq > 0) {
@@ -140,12 +137,10 @@ export class Prewarmer {
       }
     }
 
-    // Remove current app from candidates.
     if (currentRoute) {
       candidates.delete(currentRoute.appSrc);
     }
 
-    // Sort by score (highest first) and return top N.
     return [...candidates.entries()]
       .sort((a, b) => b[1] - a[1])
       .slice(0, this.maxPrewarm)
@@ -180,16 +175,15 @@ export class Prewarmer {
       if (this.prewarmedUrls.has(url)) continue;
       this.prewarmedUrls.add(url);
 
-      // Use <link rel="prefetch"> for resource hints.
       const link = document.createElement('link');
       link.rel = 'prefetch';
       link.href = url;
       link.as = 'document';
       document.head.appendChild(link);
+      this.prefetchLinks.set(url, link);
     }
   }
 
-  /** Get prewarming statistics. */
   stats(): {
     prewarmedCount: number;
     navHistorySize: number;
@@ -221,6 +215,12 @@ export class Prewarmer {
     if (this.idleCallbackId !== null) {
       this.cancelIdle(this.idleCallbackId);
     }
+
+    // Remove all prefetch <link> elements from the DOM.
+    for (const link of this.prefetchLinks.values()) {
+      link.remove();
+    }
+    this.prefetchLinks.clear();
     this.prewarmedUrls.clear();
     this.navHistory = [];
     this.frequencyCounts.clear();

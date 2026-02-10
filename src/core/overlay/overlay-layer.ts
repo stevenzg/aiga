@@ -16,20 +16,16 @@ function isOverlayElement(el: HTMLElement): boolean {
   const className = el.className?.toString?.() ?? '';
   const role = el.getAttribute('role');
 
-  // Check position: fixed/absolute with high z-index.
   if (style.position === 'fixed') return true;
 
-  // Check common overlay class names.
   const overlayPatterns =
     /\b(modal|overlay|popup|popover|drawer|dropdown|dialog|tooltip|mask|backdrop)\b/i;
   if (overlayPatterns.test(className)) return true;
 
-  // Check WAI-ARIA roles.
   if (role === 'dialog' || role === 'tooltip' || role === 'alertdialog') {
     return true;
   }
 
-  // Check computed z-index (only if already in the DOM).
   if (el.isConnected) {
     const computed = getComputedStyle(el);
     const zIndex = parseInt(computed.zIndex, 10);
@@ -48,6 +44,7 @@ export class OverlayLayer {
   private layerEl: HTMLElement;
   private observer: MutationObserver | null = null;
   private teleportedEls = new Set<HTMLElement>();
+  private cleanupObservers = new Set<MutationObserver>();
 
   constructor(private appId: string) {
     this.layerEl = document.createElement('div');
@@ -62,6 +59,11 @@ export class OverlayLayer {
    * inner wrapper) for newly appended overlay elements.
    */
   observe(target: Node): void {
+    // Disconnect any previous observer to prevent leaks.
+    if (this.observer) {
+      this.observer.disconnect();
+    }
+
     this.observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
         for (const node of mutation.addedNodes) {
@@ -77,35 +79,41 @@ export class OverlayLayer {
 
   /** Teleport an overlay element to the top-level overlay layer. */
   private teleport(el: HTMLElement): void {
-    // Wrap in a container that restores pointer events.
     const wrapper = document.createElement('div');
     wrapper.setAttribute('data-aiga-overlay-item', '');
     wrapper.style.cssText = 'pointer-events:auto;';
 
-    // Move the element.
     const placeholder = document.createComment(`aiga-overlay-${this.appId}`);
     el.parentNode?.insertBefore(placeholder, el);
     wrapper.appendChild(el);
     this.layerEl.appendChild(wrapper);
     this.teleportedEls.add(el);
 
-    // Watch for removal: if the element is removed from the overlay wrapper,
-    // clean up the wrapper too.
+    // Watch for removal.
     const cleanupObserver = new MutationObserver(() => {
       if (!wrapper.contains(el)) {
         wrapper.remove();
         placeholder.remove();
         this.teleportedEls.delete(el);
         cleanupObserver.disconnect();
+        this.cleanupObservers.delete(cleanupObserver);
       }
     });
     cleanupObserver.observe(wrapper, { childList: true });
+    this.cleanupObservers.add(cleanupObserver);
   }
 
   /** Stop observing and clean up all teleported elements. */
   dispose(): void {
     this.observer?.disconnect();
     this.observer = null;
+
+    // Disconnect all per-element cleanup observers.
+    for (const obs of this.cleanupObservers) {
+      obs.disconnect();
+    }
+    this.cleanupObservers.clear();
+
     this.teleportedEls.clear();
     this.layerEl.remove();
   }

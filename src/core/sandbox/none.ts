@@ -18,12 +18,18 @@ export class NoneSandbox implements SandboxAdapter {
   async mount(app: AppInstance, container: HTMLElement): Promise<void> {
     this.containers.set(app.id, container);
 
-    // Fetch the sub-app HTML and inject inline.
+    // Fetch the sub-app HTML.
     const html = await this.fetchAppHtml(app.src);
+
+    // Parse safely using DOMParser instead of innerHTML (prevents XSS).
+    const parsed = new DOMParser().parseFromString(html, 'text/html');
 
     const wrapper = document.createElement('div');
     wrapper.setAttribute('data-aiga-none', app.name);
-    wrapper.innerHTML = html;
+    while (parsed.body.firstChild) {
+      wrapper.appendChild(wrapper.ownerDocument.importNode(parsed.body.firstChild, true));
+      parsed.body.removeChild(parsed.body.firstChild);
+    }
     container.appendChild(wrapper);
 
     // Execute any inline scripts.
@@ -59,7 +65,6 @@ export class NoneSandbox implements SandboxAdapter {
   }
 
   postMessage(app: AppInstance, message: unknown): void {
-    // In none-sandbox, we use CustomEvents on the container element.
     const container = this.containers.get(app.id);
     container?.dispatchEvent(
       new CustomEvent('aiga-message', { detail: message, bubbles: false }),

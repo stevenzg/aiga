@@ -4,6 +4,15 @@ import type { IframePool } from '../iframe-pool/pool.js';
 import { setupDomBridge } from './dom-bridge.js';
 import { OverlayLayer } from '../overlay/overlay-layer.js';
 
+/** Derive origin from a URL for secure postMessage. */
+function getOrigin(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return '*';
+  }
+}
+
 /**
  * `sandbox="strict"` — Pooled iframe + Shadow DOM + Proxy bridge + Overlay layer.
  *
@@ -21,12 +30,17 @@ export class StrictSandbox implements SandboxAdapter {
   private shadowRoots = new Map<string, ShadowRoot>();
   private overlays = new Map<string, OverlayLayer>();
   private messageListeners = new Map<string, (e: MessageEvent) => void>();
+  private resizeListeners = new Map<string, (e: MessageEvent) => void>();
   private resizeObservers = new Map<string, ResizeObserver>();
   private bridgeCleanups = new Map<string, () => void>();
+  private appOrigins = new Map<string, string>();
 
   constructor(private pool: IframePool) {}
 
   async mount(app: AppInstance, container: HTMLElement): Promise<void> {
+    const origin = getOrigin(app.src);
+    this.appOrigins.set(app.id, origin);
+
     // Create Shadow DOM host for layout encapsulation.
     const host = document.createElement('div');
     host.setAttribute('data-aiga-strict', app.name);
@@ -72,15 +86,16 @@ export class StrictSandbox implements SandboxAdapter {
     const overlayLayer = new OverlayLayer(app.id);
     this.overlays.set(app.id, overlayLayer);
 
-    // Set up the DOM proxy bridge — intercepts overlay operations
-    // in the iframe and forwards them to the host overlay layer.
-    const cleanupBridge = setupDomBridge(iframe, overlayLayer);
+    // Set up the DOM proxy bridge with the host origin for secure postMessage.
+    const cleanupBridge = setupDomBridge(iframe, overlayLayer, origin);
     this.bridgeCleanups.set(app.id, cleanupBridge);
 
     // Set up auto-resizing: listen for height changes from the iframe.
     this.setupAutoResize(app.id, iframe);
 
     // Navigate the iframe to the sub-app URL.
+    // Note: allow-same-origin is needed for the DOM bridge to inject scripts
+    // into same-origin iframes. The iframe itself provides JS isolation.
     iframe.removeAttribute('sandbox');
     iframe.setAttribute(
       'sandbox',
@@ -114,7 +129,14 @@ export class StrictSandbox implements SandboxAdapter {
       this.resizeObservers.delete(app.id);
     }
 
-    // Clean up message listener.
+    // Clean up resize message listener.
+    const resizeListener = this.resizeListeners.get(app.id);
+    if (resizeListener) {
+      window.removeEventListener('message', resizeListener);
+      this.resizeListeners.delete(app.id);
+    }
+
+    // Clean up app message listener.
     const listener = this.messageListeners.get(app.id);
     if (listener) {
       window.removeEventListener('message', listener);
@@ -132,7 +154,6 @@ export class StrictSandbox implements SandboxAdapter {
     const iframe = this.iframes.get(app.id);
     if (iframe) {
       if (app.keepAlive) {
-        // Move iframe off-screen without resetting (preserve state).
         iframe.remove();
       } else {
         this.pool.release(iframe);
@@ -145,31 +166,40 @@ export class StrictSandbox implements SandboxAdapter {
       (shadow.host as HTMLElement).remove();
       this.shadowRoots.delete(app.id);
     }
+
+    this.appOrigins.delete(app.id);
   }
 
   async destroy(app: AppInstance): Promise<void> {
+    // Save iframe ref before unmount clears it.
     const iframe = this.iframes.get(app.id);
+
+    // Unmount first (cleans up listeners, overlays, shadow DOM).
+    await this.unmount(app);
+
+    // Then permanently remove the iframe from the pool.
     if (iframe) {
       this.pool.remove(iframe);
-      this.iframes.delete(app.id);
     }
-    await this.unmount(app);
   }
 
   postMessage(app: AppInstance, message: unknown): void {
     const iframe = this.iframes.get(app.id);
+    const origin = this.appOrigins.get(app.id) ?? '*';
     if (iframe?.contentWindow) {
       iframe.contentWindow.postMessage(
         { __aiga: true, payload: message },
-        '*',
+        origin,
       );
     }
   }
 
   onMessage(app: AppInstance, handler: (data: unknown) => void): () => void {
     const iframe = this.iframes.get(app.id);
+    const expectedOrigin = this.appOrigins.get(app.id);
     const listener = (e: MessageEvent) => {
       if (iframe?.contentWindow && e.source === iframe.contentWindow) {
+        if (expectedOrigin && expectedOrigin !== '*' && e.origin !== expectedOrigin) return;
         if (e.data?.__aiga) {
           handler(e.data.payload);
         }
@@ -190,6 +220,7 @@ export class StrictSandbox implements SandboxAdapter {
    * plus ResizeObserver for same-origin iframes.
    */
   private setupAutoResize(appId: string, iframe: HTMLIFrameElement): void {
+    // Message-based resize listener (cleaned up on unmount).
     const onMessage = (e: MessageEvent) => {
       if (e.source !== iframe.contentWindow) return;
       if (e.data?.__aiga_resize) {
@@ -197,8 +228,11 @@ export class StrictSandbox implements SandboxAdapter {
       }
     };
     window.addEventListener('message', onMessage);
+    this.resizeListeners.set(appId, onMessage);
 
-    iframe.addEventListener('load', () => {
+    // Same-origin ResizeObserver fallback (one-time setup on load).
+    const onLoad = () => {
+      iframe.removeEventListener('load', onLoad);
       try {
         const doc = iframe.contentDocument;
         if (doc) {
@@ -211,9 +245,8 @@ export class StrictSandbox implements SandboxAdapter {
         }
       } catch {
         // Cross-origin: fall back to message-based resize.
-        // The DOM bridge script injects a ResizeObserver inside the iframe
-        // that reports height changes via postMessage.
       }
-    });
+    };
+    iframe.addEventListener('load', onLoad);
   }
 }

@@ -13,13 +13,22 @@
 
 import type { OverlayLayer } from '../overlay/overlay-layer.js';
 
-/** Script to inject into same-origin iframes for DOM bridge support. */
-const BRIDGE_SCRIPT = `
+/**
+ * Generate the bridge script source for injection.
+ * The parentOrigin parameter restricts postMessage to the host origin only.
+ */
+export function getBridgeScript(parentOrigin?: string): string {
+  const origin = parentOrigin && parentOrigin !== '*'
+    ? JSON.stringify(parentOrigin)
+    : 'window.location.origin';
+
+  return `
 (function() {
   if (window.__aigaBridge) return;
   window.__aigaBridge = true;
 
-  // Intercept document.body.appendChild to detect overlay elements.
+  var targetOrigin = ${origin};
+
   var origAppend = document.body.appendChild.bind(document.body);
   var origInsert = document.body.insertBefore.bind(document.body);
 
@@ -41,7 +50,7 @@ const BRIDGE_SCRIPT = `
         action: 'overlay-detected',
         html: node.outerHTML,
         id: node.id || ('aiga-overlay-' + Date.now())
-      }, '*');
+      }, targetOrigin);
     }
     return origAppend(node);
   };
@@ -53,7 +62,7 @@ const BRIDGE_SCRIPT = `
         action: 'overlay-detected',
         html: node.outerHTML,
         id: node.id || ('aiga-overlay-' + Date.now())
-      }, '*');
+      }, targetOrigin);
     }
     return origInsert(node, ref);
   };
@@ -63,34 +72,38 @@ const BRIDGE_SCRIPT = `
     window.parent.postMessage({
       __aiga_resize: true,
       height: document.documentElement.scrollHeight
-    }, '*');
+    }, targetOrigin);
   });
   ro.observe(document.documentElement);
 })();
 `;
+}
 
 /**
  * Set up the DOM bridge for a same-origin iframe.
  * Injects the bridge script and listens for overlay events.
+ *
+ * @param iframe - The iframe element to bridge.
+ * @param overlayLayer - The overlay layer for teleporting overlay elements.
+ * @param parentOrigin - The host origin for secure postMessage targeting.
  */
 export function setupDomBridge(
   iframe: HTMLIFrameElement,
   overlayLayer: OverlayLayer | null,
+  parentOrigin?: string,
 ): () => void {
   const messageHandler = (e: MessageEvent) => {
     if (e.source !== iframe.contentWindow) return;
     if (!e.data?.__aiga_dom_bridge) return;
 
     if (e.data.action === 'overlay-detected' && overlayLayer) {
-      // The iframe detected an overlay element. We can track this
-      // for future host-side overlay mirroring.
-      // Note: For cross-origin, we can't extract the actual DOM node,
-      // but we log the event for debugging / DevTools.
       console.debug('[aiga] Overlay detected in iframe:', e.data.id);
     }
   };
 
   window.addEventListener('message', messageHandler);
+
+  const bridgeScript = getBridgeScript(parentOrigin);
 
   // Inject bridge script into same-origin iframes.
   const injectBridge = () => {
@@ -98,12 +111,11 @@ export function setupDomBridge(
       const doc = iframe.contentDocument;
       if (doc) {
         const script = doc.createElement('script');
-        script.textContent = BRIDGE_SCRIPT;
+        script.textContent = bridgeScript;
         doc.head.appendChild(script);
       }
     } catch {
       // Cross-origin: cannot inject script directly.
-      // The iframe can optionally include the aiga client SDK.
     }
   };
 
@@ -113,12 +125,4 @@ export function setupDomBridge(
     window.removeEventListener('message', messageHandler);
     iframe.removeEventListener('load', injectBridge);
   };
-}
-
-/**
- * Generate the DOM bridge script source for injection.
- * Can be used with srcdoc or inline script injection.
- */
-export function getBridgeScript(): string {
-  return BRIDGE_SCRIPT;
 }

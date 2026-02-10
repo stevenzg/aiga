@@ -30,10 +30,21 @@ export class Aiga {
     this.pool = new IframePool(config.pool);
     this.keepAlive = new KeepAliveManager({
       maxAlive: config.pool?.maxAlive,
+      onEvict: (entry) => {
+        // Clean up evicted keep-alive iframes.
+        if (entry.iframe) {
+          try {
+            entry.iframe.src = 'about:blank';
+            entry.iframe.remove();
+          } catch {
+            // noop
+          }
+        }
+        console.debug(`[aiga] Evicted keep-alive app "${entry.appId}" (${entry.name}).`);
+      },
     });
     this.prewarmer = new Prewarmer(this.pool);
 
-    // Initialize sandbox adapters.
     this.adapters = new Map<SandboxLevel, SandboxAdapter>([
       ['none', new NoneSandbox()],
       ['light', new LightSandbox()],
@@ -45,6 +56,11 @@ export class Aiga {
   static getInstance(config?: AigaConfig): Aiga {
     if (!Aiga.instance) {
       Aiga.instance = new Aiga(config);
+    } else if (config) {
+      console.warn(
+        '[aiga] Aiga.getInstance() called with config after initialization. ' +
+        'The config is ignored. Call Aiga.dispose() first to reinitialize.',
+      );
     }
     return Aiga.instance;
   }
@@ -96,6 +112,7 @@ export class Aiga {
     this.keepAlive.dispose();
     this.prewarmer.dispose();
     this.swController?.unregister();
+    this.adapters.clear();
     Aiga.instance = null;
   }
 }

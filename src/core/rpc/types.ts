@@ -7,22 +7,52 @@ export type Serializable =
   | number
   | boolean
   | null
-  | undefined
   | Serializable[]
   | { [key: string]: Serializable };
 
-/** Internal RPC message envelope sent via postMessage. */
-export interface RpcMessage {
+// ─── Discriminated Union for RPC Messages ────────────────────────
+
+/** Base fields shared by all RPC message types. */
+interface RpcMessageBase {
   __aiga_rpc: true;
   id: string;
-  type: 'call' | 'result' | 'error' | 'event';
-  method?: string;
-  args?: Serializable[];
-  result?: Serializable;
-  error?: string;
-  event?: string;
-  data?: Serializable;
 }
+
+/** A remote method call from one side to the other. */
+export interface RpcCallMessage extends RpcMessageBase {
+  type: 'call';
+  method: string;
+  args: Serializable[];
+}
+
+/** A successful result response. */
+export interface RpcResultMessage extends RpcMessageBase {
+  type: 'result';
+  result: Serializable;
+}
+
+/** An error response. */
+export interface RpcErrorMessage extends RpcMessageBase {
+  type: 'error';
+  error: string;
+}
+
+/** A fire-and-forget event notification. */
+export interface RpcEventMessage extends RpcMessageBase {
+  type: 'event';
+  event: string;
+  data: Serializable;
+}
+
+/**
+ * Internal RPC message envelope sent via postMessage.
+ * Discriminated union on `type` for exhaustive switch handling.
+ */
+export type RpcMessage =
+  | RpcCallMessage
+  | RpcResultMessage
+  | RpcErrorMessage
+  | RpcEventMessage;
 
 /**
  * Extract the RPC-callable methods from a contract interface.

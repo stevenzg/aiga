@@ -28,13 +28,18 @@ export async function registerServiceWorker(
       registration.installing;
 
     if (sw && sw.state !== 'activated') {
-      await new Promise<void>((resolve) => {
-        sw.addEventListener('statechange', function handler() {
+      await new Promise<void>((resolve, reject) => {
+        const onStateChange = () => {
           if (sw.state === 'activated') {
-            sw.removeEventListener('statechange', handler);
+            sw.removeEventListener('statechange', onStateChange);
             resolve();
+          } else if (sw.state === 'redundant') {
+            // SW entered redundant state — don't hang forever.
+            sw.removeEventListener('statechange', onStateChange);
+            reject(new Error('Service Worker entered redundant state'));
           }
-        });
+        };
+        sw.addEventListener('statechange', onStateChange);
       });
     }
 

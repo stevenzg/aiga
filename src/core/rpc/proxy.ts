@@ -44,6 +44,22 @@ export type AsyncProxy<T> = {
 };
 
 /**
+ * Keys that must NOT be proxied to prevent infinite loops and
+ * broken serialization. In particular, `then` must return undefined
+ * so that `await proxy` resolves to the proxy itself rather than
+ * triggering an infinite thenable chain.
+ */
+const NON_PROXIED_KEYS = new Set<string>([
+  'then',        // Prevents thenable infinite loop with `await`
+  'catch',       // Promise protocol
+  'finally',     // Promise protocol
+  'toJSON',      // Prevents issues with JSON.stringify
+  'valueOf',     // Prevents issues with type coercion
+  'toString',    // Object protocol
+  'constructor', // Object protocol
+]);
+
+/**
  * Create a typed RPC proxy for communicating with a micro-frontend app.
  *
  * All method calls on the returned proxy are transparently serialized
@@ -110,7 +126,10 @@ export function exposeApi<T extends Record<string, (...args: Serializable[]) => 
 function createRpcProxy<T>(channel: RpcChannel): AsyncProxy<T> {
   return new Proxy({} as AsyncProxy<T>, {
     get(_target, prop) {
+      // Return undefined for symbols and non-proxied keys (prevents thenable loop).
       if (typeof prop === 'symbol') return undefined;
+      if (NON_PROXIED_KEYS.has(prop as string)) return undefined;
+
       const method = prop as string;
 
       // Return a function that calls the remote method via RPC.

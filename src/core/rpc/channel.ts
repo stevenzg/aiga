@@ -1,8 +1,17 @@
-import type { RpcMessage, Serializable, Unsubscribe } from './types.js';
+import type { RpcMessage, RpcCallMessage, RpcResultMessage, RpcErrorMessage, RpcEventMessage, Serializable, Unsubscribe } from './types.js';
 
 let rpcIdCounter = 0;
 function nextId(): string {
   return `rpc_${++rpcIdCounter}_${Date.now().toString(36)}`;
+}
+
+/** Derive the origin from a URL for secure postMessage targeting. */
+function deriveOrigin(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return '*';
+  }
 }
 
 function isRpcMessage(data: unknown): data is RpcMessage {
@@ -39,6 +48,14 @@ export class RpcChannel {
     window.addEventListener('message', this.windowListener);
   }
 
+  /**
+   * Create an RPC channel for communicating with an app at the given URL.
+   * Automatically derives the target origin for secure postMessage.
+   */
+  static forApp(target: Window, appSrc: string): RpcChannel {
+    return new RpcChannel(target, deriveOrigin(appSrc));
+  }
+
   /** Register a method handler that can be called from the remote side. */
   expose<T extends Serializable>(
     method: string,
@@ -56,7 +73,7 @@ export class RpcChannel {
     if (!this.target) throw new Error('No target window');
 
     const id = nextId();
-    const message: RpcMessage = {
+    const message: RpcCallMessage = {
       __aiga_rpc: true,
       id,
       type: 'call',
@@ -89,7 +106,7 @@ export class RpcChannel {
   /** Emit an event to the remote side (fire-and-forget). */
   emit(event: string, data: Serializable): void {
     if (!this.target) return;
-    const message: RpcMessage = {
+    const message: RpcEventMessage = {
       __aiga_rpc: true,
       id: nextId(),
       type: 'event',
@@ -117,14 +134,23 @@ export class RpcChannel {
   }
 
   /** Update the target window (e.g., after iframe navigation). */
-  setTarget(target: Window | null): void {
+  setTarget(target: Window | null, origin?: string): void {
     this.target = target;
+    if (origin !== undefined) {
+      this.targetOrigin = origin;
+    }
   }
 
   private handleMessage(e: MessageEvent): void {
+    if (this.disposed) return;
     if (!isRpcMessage(e.data)) return;
-    // Only accept messages from our target window.
-    if (this.target && e.source !== this.target) return;
+
+    // Strict source validation: only accept messages from our target window.
+    // When target is null (channel not yet connected), reject all messages.
+    if (!this.target || e.source !== this.target) return;
+
+    // Validate origin if we have a specific targetOrigin.
+    if (this.targetOrigin !== '*' && e.origin !== this.targetOrigin) return;
 
     const msg = e.data;
 
@@ -133,8 +159,10 @@ export class RpcChannel {
         this.handleCall(msg);
         break;
       case 'result':
+        this.handleResult(msg);
+        break;
       case 'error':
-        this.handleResponse(msg);
+        this.handleError(msg);
         break;
       case 'event':
         this.handleEvent(msg);
@@ -142,57 +170,64 @@ export class RpcChannel {
     }
   }
 
-  private async handleCall(msg: RpcMessage): Promise<void> {
-    const handler = this.handlers.get(msg.method!);
+  private async handleCall(msg: RpcCallMessage): Promise<void> {
+    const handler = this.handlers.get(msg.method);
     if (!handler) {
-      this.sendResponse(msg.id, undefined, `Unknown method: ${msg.method}`);
+      this.sendError(msg.id, `Unknown method: ${msg.method}`);
       return;
     }
 
     try {
-      const result = await handler(...(msg.args ?? []));
-      this.sendResponse(msg.id, result);
+      const result = await handler(...msg.args);
+      this.sendResult(msg.id, result);
     } catch (err) {
-      this.sendResponse(
+      this.sendError(
         msg.id,
-        undefined,
         err instanceof Error ? err.message : String(err),
       );
     }
   }
 
-  private handleResponse(msg: RpcMessage): void {
+  private handleResult(msg: RpcResultMessage): void {
     const pending = this.pending.get(msg.id);
     if (!pending) return;
     this.pending.delete(msg.id);
-
-    if (msg.type === 'error') {
-      pending.reject(new Error(msg.error ?? 'Unknown RPC error'));
-    } else {
-      pending.resolve(msg.result as Serializable);
-    }
+    pending.resolve(msg.result);
   }
 
-  private handleEvent(msg: RpcMessage): void {
-    const listeners = this.eventListeners.get(msg.event!);
+  private handleError(msg: RpcErrorMessage): void {
+    const pending = this.pending.get(msg.id);
+    if (!pending) return;
+    this.pending.delete(msg.id);
+    pending.reject(new Error(msg.error));
+  }
+
+  private handleEvent(msg: RpcEventMessage): void {
+    const listeners = this.eventListeners.get(msg.event);
     if (listeners) {
       for (const listener of listeners) {
-        listener(msg.data as Serializable);
+        listener(msg.data);
       }
     }
   }
 
-  private sendResponse(
-    id: string,
-    result?: Serializable,
-    error?: string,
-  ): void {
+  private sendResult(id: string, result: Serializable): void {
     if (!this.target) return;
-    const message: RpcMessage = {
+    const message: RpcResultMessage = {
       __aiga_rpc: true,
       id,
-      type: error ? 'error' : 'result',
-      result,
+      type: 'result',
+      result: result ?? null,
+    };
+    this.target.postMessage(message, this.targetOrigin);
+  }
+
+  private sendError(id: string, error: string): void {
+    if (!this.target) return;
+    const message: RpcErrorMessage = {
+      __aiga_rpc: true,
+      id,
+      type: 'error',
       error,
     };
     this.target.postMessage(message, this.targetOrigin);
