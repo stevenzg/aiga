@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "npm run build:lib && next dev",
     "build:lib": "cd .. && npm install --ignore-scripts && npm run build",
     "build": "npm run build:lib && next build",
     "start": "next start",
