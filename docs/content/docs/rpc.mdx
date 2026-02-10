@@ -1,0 +1,111 @@
+---
+title: RPC Channel
+description: Typed cross-app communication via Promise-based postMessage.
+---
+
+The RPC Channel provides typed request/response communication between the host and iframe-based sub-apps (`strict` and `remote` sandbox levels).
+
+## Overview
+
+```ts
+import { RpcChannel } from 'aiga';
+
+// Create a channel targeting a sub-app iframe
+const rpc = RpcChannel.forApp(
+  iframe.contentWindow,
+  'https://sub-app.example.com',
+  10_000  // timeout in ms
+);
+```
+
+## Calling Methods
+
+```ts
+// Host calls a method exposed by the sub-app
+const result = await rpc.call<string>('getSettings', 'theme');
+console.log(result); // "dark"
+```
+
+Under the hood:
+1. A unique message ID is generated
+2. The call is sent via `postMessage` with origin validation
+3. A timeout timer starts (default 10s, configurable)
+4. The response resolves or rejects the Promise
+
+## Exposing Methods
+
+```ts
+// Sub-app exposes methods for the host to call
+rpc.expose('getSettings', (key: string) => {
+  return settings[key];
+});
+
+rpc.expose('updateUser', async (userId: number, data: object) => {
+  await api.updateUser(userId, data);
+  return { success: true };
+});
+```
+
+## Events (Fire-and-Forget)
+
+```ts
+// Host sends an event to the sub-app
+rpc.emit('theme-change', { theme: 'dark' });
+
+// Sub-app listens for events
+const unsub = rpc.on('theme-change', (data) => {
+  applyTheme(data.theme);
+});
+
+// Cleanup
+unsub();
+```
+
+## Props via RPC
+
+The `<mf-app>` element has a `props` property that automatically sends updates via RPC:
+
+```ts
+const app = document.querySelector('mf-app');
+
+// Sends 'props-update' event via RPC
+app.props = { userId: 42, permissions: ['read', 'write'] };
+
+// Sub-app receives:
+rpc.on('props-update', (props) => {
+  console.log(props.userId); // 42
+});
+```
+
+## Error Handling
+
+```ts
+try {
+  const result = await rpc.call('riskyMethod');
+} catch (err) {
+  if (err.message.includes('timed out')) {
+    // Handle timeout
+  } else if (err.message.includes('Unknown method')) {
+    // Method not exposed by sub-app
+  } else {
+    // Sub-app threw an error
+  }
+}
+```
+
+## Security
+
+- All messages include `__aiga_rpc: true` marker for filtering
+- `targetOrigin` is derived from the sub-app URL (not `'*'`)
+- Incoming messages are validated: `e.source === target` and `e.origin === expectedOrigin`
+- The channel rejects all messages when disposed
+
+## Lifecycle
+
+```ts
+// Update target after iframe navigation
+rpc.setTarget(newWindow, 'https://new-origin.com');
+
+// Clean up: rejects pending calls, removes listener
+rpc.dispose();
+```

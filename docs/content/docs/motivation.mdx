@@ -1,0 +1,62 @@
+---
+title: Why We Built Aiga
+description: The problems with existing micro-frontend solutions that led to Aiga's creation.
+---
+
+## The Problem
+
+Large frontend applications face a fundamental tension: **teams need independence**, but **users need coherence**. Micro-frontends solve this by letting teams build, deploy, and scale independently. But existing solutions force painful trade-offs:
+
+### Trade-off 1: Isolation vs. Performance
+
+Most frameworks offer **one** isolation level:
+- **qiankun**: Proxy-based snapshot — fast but leaks state across apps
+- **wujie**: iframe-based — secure but every app pays the ~20MB iframe cost
+- **Module Federation**: Zero isolation — fast but apps can break each other
+
+Real applications have **different trust levels**. Your internal header widget doesn't need the same isolation as a third-party analytics embed. Forcing a single level means you're either over-isolating (slow) or under-isolating (unsafe).
+
+### Trade-off 2: Overlays vs. Sandboxing
+
+This is the hardest problem in micro-frontends. When a sub-app opens a modal:
+- In **Shadow DOM**: `position: fixed` is relative to the shadow container, not the viewport
+- In **iframes**: The overlay is clipped to the iframe boundary
+- **qiankun**: Requires manual workarounds per UI library
+- **micro-app**: Partial support, breaks with nested shadows
+
+### Trade-off 3: Communication vs. Isolation
+
+Isolated apps need to communicate. But existing solutions either:
+- Provide no built-in communication (Module Federation)
+- Use untyped event buses (qiankun)
+- Rely on raw `postMessage` with no timeout or error handling (wujie)
+
+### Trade-off 4: Performance vs. Cold Start
+
+Creating a new iframe takes 50-100ms. If every navigation creates a fresh iframe, users feel the delay. But keeping iframes around wastes memory. No existing framework provides:
+- A **pre-warmed pool** to eliminate cold starts
+- **LRU eviction** to bound memory
+- **Smart prewarming** based on navigation patterns
+
+## Aiga's Solution
+
+Aiga resolves these trade-offs with **Adaptive Sandbox Architecture**:
+
+| Problem | Aiga's Approach |
+|---|---|
+| One-size isolation | 4 tiers: `none`, `light`, `strict`, `remote` |
+| Overlay rendering | Teleportation (light) + iframe promotion (strict) |
+| Communication | Typed RPC channel with timeout and Promise API |
+| Cold start | Pre-warmed iframe pool with LRU |
+| Memory pressure | Per-app keep-alive with priority-based eviction |
+| Routing | Built-in router with nested routes and guards |
+
+The key insight: **isolation is not binary**. Different sub-apps have different trust levels, different performance needs, and different capability requirements. A framework should let you choose per sub-app, not globally.
+
+## Design Principles
+
+1. **Progressive Isolation** — Start with `none` for trusted code, escalate to `remote` for untrusted. No wasted overhead.
+2. **Zero-Config Default** — `<mf-app src="...">` just works with sensible defaults.
+3. **Framework Agnostic** — Web Components work everywhere. No React/Vue/Angular coupling.
+4. **Security by Default** — Storage namespacing, cookie isolation, window.top override, origin-validated messaging.
+5. **Overlay-First Design** — Modals, popovers, and drawers work correctly without manual patching.

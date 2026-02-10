@@ -1,0 +1,19 @@
+{
+  "title": "Documentation",
+  "pages": [
+    "index",
+    "---Why Aiga---",
+    "motivation",
+    "comparison",
+    "---Usage---",
+    "getting-started",
+    "sandbox-tiers",
+    "rpc",
+    "router",
+    "overlay",
+    "---Testing---",
+    "test-scenarios",
+    "---Interactive---",
+    "demos"
+  ]
+}

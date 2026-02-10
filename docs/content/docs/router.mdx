@@ -1,0 +1,155 @@
+---
+title: Router
+description: URL-based routing with nested routes, dynamic params, guards, and declarative views.
+---
+
+Aiga includes a built-in router that maps URL paths to sub-applications, supporting both `history` (pushState) and `hash` modes.
+
+## Basic Setup
+
+```ts
+import { Router } from 'aiga';
+
+const router = new Router({
+  mode: 'history', // or 'hash'
+  base: '/app',    // optional URL prefix
+  routes: [
+    {
+      path: '/dashboard',
+      app: { src: 'https://dashboard.app/', sandbox: 'strict' },
+    },
+    {
+      path: '/settings',
+      app: { src: 'https://settings.app/', sandbox: 'light' },
+    },
+  ],
+  notFound: {
+    src: 'https://404.app/',
+    sandbox: 'light',
+  },
+});
+```
+
+## Dynamic Parameters
+
+```ts
+routes: [
+  {
+    path: '/users/:id',
+    app: { src: 'https://users.app/', sandbox: 'strict' },
+  },
+]
+
+// /users/42 → params: { id: '42' }
+```
+
+## Nested Routes
+
+```ts
+routes: [
+  {
+    path: '/admin',
+    children: [
+      {
+        path: '/users',
+        app: { src: 'https://admin-users.app/' },
+      },
+      {
+        path: '/config',
+        app: { src: 'https://admin-config.app/' },
+      },
+    ],
+  },
+]
+
+// /admin/users → matches admin-users.app
+// /admin/config → matches admin-config.app
+```
+
+Nested matching uses a proper prefix algorithm: the parent path is matched as a prefix, and the remainder is matched against children.
+
+## Wildcards
+
+```ts
+routes: [
+  {
+    path: '/docs/*',
+    app: { src: 'https://docs.app/' },
+  },
+]
+
+// /docs/guides/getting-started → params: { '*': 'guides/getting-started' }
+```
+
+## Navigation Guards
+
+```ts
+// Global before guard
+const removeGuard = router.beforeEach(async (to, from) => {
+  if (to.path.startsWith('/admin')) {
+    const isAdmin = await checkAdminAccess();
+    return isAdmin; // false cancels navigation
+  }
+  return true;
+});
+
+// Per-route guard
+routes: [
+  {
+    path: '/settings',
+    app: { src: '...' },
+    beforeEnter: async (to, from) => {
+      return isAuthenticated();
+    },
+  },
+]
+
+// After hooks
+router.afterEach((to, from) => {
+  analytics.track('page_view', { path: to.path });
+});
+```
+
+## Programmatic Navigation
+
+```ts
+await router.push('/dashboard');        // Add history entry
+await router.replace('/dashboard');     // Replace current entry
+router.back();                          // history.back()
+router.forward();                       // history.forward()
+router.go(-2);                          // history.go(-2)
+```
+
+## Declarative View
+
+```html
+<mf-router-view></mf-router-view>
+```
+
+```ts
+const view = document.querySelector('mf-router-view');
+view.router = router;
+```
+
+The `<mf-router-view>` automatically:
+- Creates `<mf-app>` elements for matched routes
+- Reuses elements when the same src matches (only updates props)
+- Passes `$route` as props: `{ params, query, path }`
+
+## Events
+
+```ts
+router.on('route-change', (e) => {
+  console.log('Navigated:', e.detail.from?.path, '→', e.detail.to.path);
+});
+
+router.on('not-found', (e) => {
+  console.log('404:', e.detail.path);
+});
+```
+
+## Cleanup
+
+```ts
+router.dispose(); // Removes popstate/hashchange listeners
+```

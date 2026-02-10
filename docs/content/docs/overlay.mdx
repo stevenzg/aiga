@@ -1,0 +1,79 @@
+---
+title: Overlay Handling
+description: How Aiga handles modals, popovers, and drawers across Shadow DOM and iframe boundaries.
+---
+
+Overlays (modals, popovers, dropdowns, drawers) are the hardest problem in micro-frontends. UI libraries like antd, Element Plus, and Radix append overlays to `document.body`. This breaks in two ways:
+
+1. **Shadow DOM**: `position: fixed` is relative to the shadow container, not the viewport
+2. **iframes**: Overlays are clipped to the iframe boundary
+
+Aiga solves both cases automatically.
+
+## Light Sandbox: Teleportation
+
+In `light` mode, the `OverlayLayer` detects overlay elements via MutationObserver and teleports them outside the Shadow DOM:
+
+1. **Detection**: A MutationObserver watches for new elements and attribute changes
+2. **Classification**: The `isOverlayElement()` heuristic checks for overlay signals
+3. **Teleportation**: Matching elements are moved to a `position: fixed` layer at the top of the document
+4. **Cleanup**: A per-element observer watches for removal and cleans up
+
+### Detection Signals
+
+The heuristic requires **strong signals** to avoid false positives (headers, navbars, sticky sidebars):
+
+| Signal | Example | Strength |
+|---|---|---|
+| `role` attribute | `role="dialog"`, `role="tooltip"`, `role="alertdialog"` | Strong |
+| Class name | `.modal`, `.overlay`, `.popup`, `.popover`, `.drawer` | Strong |
+| `position: fixed` + `z-index > 1000` | Computed or inline styles | Moderate |
+
+`position: fixed` alone is **not enough** — it matches headers and navbars.
+
+### Attribute Watching
+
+Some UI libraries add elements to the DOM first, then set overlay attributes asynchronously:
+
+```
+1. createElement('div')  → not an overlay
+2. appendChild(div)      → MutationObserver fires (childList)
+3. div.role = 'dialog'   → MutationObserver fires (attributes)
+4. isOverlayElement()    → true → teleport!
+```
+
+The observer watches `class`, `role`, and `style` attribute changes with `attributeFilter`.
+
+## Strict Sandbox: iframe Promotion
+
+In `strict` mode, overlays render inside the iframe. Instead of cloning HTML (which loses event handlers and state), Aiga **promotes the iframe** to cover the full viewport:
+
+1. **Bridge detection**: The bridge script inside the iframe detects `body.appendChild` calls that match overlay heuristics
+2. **Promotion message**: The bridge sends `{ action: 'overlay-show' }` to the host
+3. **iframe promotion**: The iframe wrapper gets `position: fixed; width: 100vw; height: 100vh; z-index: 2147483647`
+4. **Full interactivity**: Clicks, scrolling, animations all work inside the promoted iframe
+5. **Dismissal**: When the overlay is removed, the bridge sends `overlay-hide`
+6. **Demotion**: The iframe returns to inline mode with height re-synced
+
+### Why Not Clone?
+
+Other frameworks try to clone overlay HTML from the iframe to the host document. This fails because:
+- Event handlers are lost
+- Scoped CSS doesn't transfer
+- React/Vue state is disconnected
+- Animations break
+
+iframe promotion keeps everything intact — the overlay runs in its original context.
+
+### Overlay Count Tracking
+
+The bridge tracks `activeOverlays` count. Promotion happens on the first overlay (`0 → 1`), and demotion only happens when all overlays are dismissed (`count → 0`). This correctly handles nested overlays (e.g., a dialog that opens a confirm dialog).
+
+## Remote Sandbox: No Overlay Support
+
+`remote` mode provides no overlay handling. The iframe has an opaque origin, so:
+- No bridge script can be injected
+- Overlays are clipped to the iframe boundary
+- This is by design — untrusted content should not escape its container
+
+If you need overlay support for third-party content, use `strict` instead.

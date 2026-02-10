@@ -1,0 +1,91 @@
+---
+title: Comparison with Alternatives
+description: How Aiga compares to qiankun, micro-app, wujie, Module Federation, and single-spa.
+---
+
+## Framework Comparison Matrix
+
+| Feature | qiankun | micro-app | wujie | Module Federation | Aiga |
+|---|---|---|---|---|---|
+| **Isolation Strategy** | Proxy snapshot | Shadow DOM + Proxy | iframe + Proxy | None (shared) | 4-tier adaptive |
+| **CSS Isolation** | Partial (scope prefix) | Shadow DOM | iframe boundary | None | Shadow DOM / iframe |
+| **JS Isolation** | Proxy snapshot (leaks) | Proxy (partial) | iframe (full) | None | Proxy / iframe (tunable) |
+| **Storage Isolation** | None | None | Per-app namespace | None | Per-app namespace |
+| **Cookie Isolation** | None | None | None | None | Per-app namespace |
+| **Overlay Handling** | Manual patching | Partial auto | iframe promotion | N/A | Auto teleport + promotion |
+| **Communication** | globalState + event | data binding | props + event | Shared modules | Typed RPC + events |
+| **iframe Pool** | No | No | No | N/A | Yes (pre-warmed, LRU) |
+| **Keep-Alive** | Limited | Limited | Memory-based | N/A | LRU with priority eviction |
+| **Router Integration** | External | Built-in (basic) | Built-in | External | Built-in (nested, guards) |
+| **TypeScript RPC** | No | No | No | Partial | Full |
+| **Framework Lock-in** | None | None | None | Webpack/Vite | None |
+| **Web Component API** | No | Yes | No | No | Yes |
+
+## Detailed Comparisons
+
+### vs. qiankun
+
+**qiankun** uses a Proxy-based snapshot approach: when a sub-app mounts, it captures the current `window` state; on unmount, it restores it. This is lightweight but fundamentally flawed:
+
+- **State leakage**: Side effects that escape the snapshot (timers, event listeners, global mutations between snapshots) leak between apps
+- **No real CSS isolation**: Relies on prefix-based scoping which breaks dynamic styles
+- **No overlay handling**: Modals from antd/Element Plus need per-library patches
+- **Untyped communication**: `globalState` is a plain object with no type safety
+
+Aiga's `light` sandbox provides similar overhead (~2-5MB) with stronger guarantees: Shadow DOM for CSS, Proxy for JS, timer tracking for cleanup, and scoped cookies.
+
+### vs. micro-app
+
+**micro-app** is the closest in philosophy — it also uses Web Components and Shadow DOM. Key differences:
+
+- **Single isolation level**: micro-app doesn't let you choose per sub-app
+- **No iframe pooling**: Every strict-isolated app creates a fresh iframe
+- **Limited overlay support**: Handles some cases but breaks with nested shadows
+- **No typed RPC**: Communication is via `data` attribute binding and custom events
+
+Aiga extends micro-app's approach with tiered isolation, iframe pooling, and a full RPC channel.
+
+### vs. wujie
+
+**wujie** pioneered iframe-based isolation with proxy bridging. Aiga builds on this foundation:
+
+- **All-or-nothing isolation**: wujie doesn't offer a lighter option for trusted apps
+- **No iframe pool**: Each app creates a fresh iframe (~50-100ms cold start)
+- **No keep-alive LRU**: Memory management is manual
+- **No CSS variable syncing**: Host theme changes don't propagate to iframe apps
+- **No cookie isolation**: Apps can read/write each other's cookies
+
+Aiga's `strict` mode matches wujie's isolation while adding pooling, CSS sync, cookie namespacing, and configurable timeouts.
+
+### vs. Module Federation
+
+**Module Federation** is a build-time solution for code sharing, not a runtime isolation framework:
+
+- **No runtime isolation**: Shared modules run in the same context
+- **Build-tool coupling**: Requires Webpack 5+ or Vite plugin configuration
+- **No overlay handling**: Not applicable (same runtime)
+- **Version conflicts**: Shared dependency mismatches cause runtime errors
+
+Module Federation is complementary to Aiga — you can use Federation for shared libraries and Aiga for runtime isolation.
+
+### vs. single-spa
+
+**single-spa** is a meta-framework that orchestrates sub-app lifecycles but provides no isolation:
+
+- **No sandboxing**: Apps share the global scope entirely
+- **External routing**: Relies on framework-specific adapters
+- **Manual lifecycle**: Each app must export `bootstrap`, `mount`, `unmount`
+- **No communication layer**: Apps must implement their own messaging
+
+Aiga provides everything single-spa does (lifecycle, routing) plus isolation, RPC, and overlay handling.
+
+## When to Use What
+
+| Scenario | Recommendation |
+|---|---|
+| Same team, shared build | Module Federation |
+| Same team, independent deploy | Aiga (`none` or `light`) |
+| Cross-team, trusted apps | Aiga (`light` or `strict`) |
+| Third-party widgets | Aiga (`strict` or `remote`) |
+| Fully untrusted content | Aiga (`remote`) |
+| Legacy migration (gradual) | single-spa + Aiga for new apps |

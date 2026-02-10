@@ -1,0 +1,95 @@
+---
+title: Sandbox Tiers
+description: Deep dive into the 4 adaptive sandbox isolation levels.
+---
+
+Aiga's core innovation is **adaptive sandboxing** — 4 isolation tiers that let you trade off between security, performance, and capability per sub-app.
+
+## Tier Overview
+
+| Tier | Isolation | Overhead | Use Case |
+|---|---|---|---|
+| `none` | Zero | ~0 MB | Same-team trusted modules |
+| `light` | CSS + partial JS | ~2-5 MB | Internal apps needing CSS isolation |
+| `strict` | Full (iframe) | ~15-20 MB | Cross-team or third-party apps |
+| `remote` | Maximum (opaque origin) | ~20-30 MB | Fully untrusted content |
+
+## `sandbox="none"` — Direct Mount
+
+Content is fetched as HTML and injected directly into the host document. No Shadow DOM, no Proxy, no iframe.
+
+**What it does:**
+- Fetches HTML via `fetch()`, parses with `DOMParser` (XSS-safe — no `innerHTML`)
+- Executes scripts in the host context
+- Sets up error boundary for uncaught errors
+- Detects CORS errors with friendly messages
+
+**What it doesn't do:**
+- No CSS isolation (styles leak in both directions)
+- No JS isolation (globals are shared)
+- No storage/cookie isolation
+
+**Best for:** Headers, footers, shared navigation — trusted modules from the same team.
+
+## `sandbox="light"` — Shadow DOM + Proxy
+
+Content runs inside a Shadow DOM boundary with a lightweight Proxy on `window`.
+
+**What it does:**
+- **Shadow DOM** for CSS isolation — host styles don't leak in, sub-app styles don't leak out
+- **Window Proxy** traps property writes to a local scope
+- **Timer tracking** — `setTimeout`, `setInterval`, `requestAnimationFrame` are tracked and cleared on destroy
+- **document.title** scoped per sub-app (writes don't affect host)
+- **document.cookie** scoped per sub-app (isolated cookie store)
+- **CSS variables** synced reactively from `:root` via MutationObserver
+- **Overlay detection** via MutationObserver + teleportation to top-level layer
+- **Error boundary** catches uncaught errors and unhandled rejections
+
+**Limitations:**
+- JS isolation is "best-effort" — prevents accidental leakage, not malicious attacks
+- External `<script src="...">` tags run in the host context
+- Sub-apps share the same event loop
+
+## `sandbox="strict"` — Pooled iframe + Bridge
+
+Full JS isolation in a pooled iframe with a DOM proxy bridge for overlay handling.
+
+**What it does:**
+- Acquires a **pre-warmed iframe** from the pool (~0ms vs. 50-100ms cold start)
+- Injects a **bridge script** that:
+  - Overrides `window.top` and `window.parent` to prevent escape
+  - Namespaces `localStorage` and `sessionStorage` per app
+  - Namespaces `document.cookie` per app
+  - Detects overlays and sends promotion/demotion messages
+  - Receives CSS variable updates from the host
+  - Reports document height for auto-resize
+- **iframe promotion**: When an overlay is detected, the iframe wrapper gets `position: fixed; width: 100vw; height: 100vh` for full-viewport rendering
+- **CSS variable sync** via postMessage when `:root` style/class changes
+- **Auto-resize** via ResizeObserver (same-origin) or postMessage (cross-origin)
+- **Origin-validated messaging** for all postMessage communication
+
+**Security hardening:**
+- `sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"`
+- `window.top`/`window.parent` frozen to `self`
+- Storage prefixed with `__aiga_{appId}:`
+- Cookie names prefixed with `__aiga_{appId}:`
+- All message handlers validate `e.origin`
+
+## `sandbox="remote"` — Pure iframe
+
+Maximum isolation with no bridge injection.
+
+**What it does:**
+- Creates a standalone iframe with `sandbox` attribute (no `allow-same-origin`)
+- The iframe gets an **opaque origin** — cannot access host cookies, storage, or DOM
+- Communication limited to `postMessage` (via RPC channel)
+- Auto-resize via postMessage protocol
+- Lazy loading support via `loading="lazy"` attribute
+
+**What it can't do:**
+- No bridge script (can't inject into cross-origin iframe)
+- No overlay handling (overlay stays clipped inside iframe)
+- No CSS variable sync
+- No keep-alive state beyond the iframe itself
+
+**Best for:** Embedding fully untrusted third-party content like ads, embeds, or user-generated widgets.
