@@ -202,7 +202,7 @@ function AppCard({
 /*  SingleAppCard — standalone app card without RPC relay              */
 /* ------------------------------------------------------------------ */
 
-function SingleAppCard({ app }: { app: AppDef }) {
+function SingleAppCard({ app, height = '420px' }: { app: AppDef; height?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<AppStatus>('idle');
 
@@ -225,7 +225,7 @@ function SingleAppCard({ app }: { app: AppDef }) {
           {app.sandbox}
         </span>
       </div>
-      <div ref={ref} style={{ height: '420px' }}>
+      <div ref={ref} style={{ height }}>
         {/* @ts-expect-error -- aiga-app is a custom element */}
         <aiga-app
           name={app.name}
@@ -249,9 +249,11 @@ export function CrossOriginDemo() {
       <div className="grid gap-4 lg:grid-cols-2">
         <SingleAppCard
           app={{ name: 'rosetta-react', label: 'Rosetta React', src: 'https://rosetta-react.vercel.app/', sandbox: 'strict' }}
+          height="70vh"
         />
         <SingleAppCard
           app={{ name: 'rosetta-svelte', label: 'Rosetta Svelte', src: 'https://rosetta-svelte.vercel.app/', sandbox: 'strict' }}
+          height="70vh"
         />
       </div>
     </AigaShell>
