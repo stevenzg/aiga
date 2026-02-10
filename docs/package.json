@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build:lib": "cd .. && npm install --ignore-scripts && npm run build",
+    "build": "npm run build:lib && next build",
     "start": "next start",
     "postinstall": "fumadocs-mdx"
   },
