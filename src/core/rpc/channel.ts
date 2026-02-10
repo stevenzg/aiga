@@ -5,12 +5,12 @@ function nextId(): string {
   return `rpc_${++rpcIdCounter}_${Date.now().toString(36)}`;
 }
 
-/** Derive the origin from a URL for secure postMessage targeting. */
+/** Derive the origin from a URL for secure postMessage targeting. Throws on invalid URL. */
 function deriveOrigin(url: string): string {
   try {
     return new URL(url).origin;
   } catch {
-    return '*';
+    throw new Error(`[aiga] Invalid URL for RPC target: ${url}`);
   }
 }
 

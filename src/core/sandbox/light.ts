@@ -18,6 +18,7 @@ export class LightSandbox implements SandboxAdapter {
   private proxies = new Map<string, { revoke: () => void }>();
   private overlays = new Map<string, OverlayLayer>();
   private messageHandlers = new Map<string, Set<(data: unknown) => void>>();
+  private listenerCleanups = new Map<string, Set<() => void>>();
 
   async mount(app: AppInstance, container: HTMLElement): Promise<void> {
     // Create a Shadow DOM root for CSS isolation.
@@ -68,6 +69,10 @@ export class LightSandbox implements SandboxAdapter {
   }
 
   async unmount(app: AppInstance): Promise<void> {
+    // Clean up event listeners for this app.
+    this.listenerCleanups.get(app.id)?.forEach((unsub) => unsub());
+    this.listenerCleanups.delete(app.id);
+
     const shadow = this.shadowRoots.get(app.id);
     if (shadow) {
       const host = shadow.host as HTMLElement;
@@ -106,9 +111,21 @@ export class LightSandbox implements SandboxAdapter {
     const listener = (e: Event) => handler((e as CustomEvent).detail);
     shadow?.host.addEventListener('aiga-message-up', listener);
 
-    return () => {
+    // Track for cleanup on unmount.
+    let cleanups = this.listenerCleanups.get(app.id);
+    if (!cleanups) {
+      cleanups = new Set();
+      this.listenerCleanups.set(app.id, cleanups);
+    }
+    const unsub = () => {
       handlers!.delete(handler);
       shadow?.host.removeEventListener('aiga-message-up', listener);
+    };
+    cleanups.add(unsub);
+
+    return () => {
+      unsub();
+      cleanups!.delete(unsub);
     };
   }
 

@@ -114,7 +114,7 @@ export function exposeApi<T extends Record<string, (...args: Serializable[]) => 
 ): void {
   for (const [method, handler] of Object.entries(implementation)) {
     if (typeof handler === 'function') {
-      channel.expose(method, handler as (...args: Serializable[]) => Serializable);
+      channel.expose(method, handler as (...args: Serializable[]) => Serializable | Promise<Serializable>);
     }
   }
 }

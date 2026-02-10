@@ -98,6 +98,7 @@ export function setupDomBridge(
 
     if (e.data.action === 'overlay-detected' && overlayLayer) {
       console.debug('[aiga] Overlay detected in iframe:', e.data.id);
+      overlayLayer.addOverlayFromHtml(e.data.html, e.data.id);
     }
   };
 

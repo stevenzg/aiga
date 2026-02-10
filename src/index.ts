@@ -105,8 +105,8 @@ export function initAiga(config?: AigaConfig): Aiga {
   // Register the <mf-app> Web Component.
   registerMfApp();
 
-  // Initialize Service Worker if configured.
-  if (config?.cache?.enabled) {
+  // Initialize Service Worker if configured (enabled by default when cache config is present).
+  if (config?.cache?.enabled !== false && config?.cache) {
     aiga.initServiceWorker().catch((err) => {
       console.warn('[aiga] Service Worker init failed:', err);
     });

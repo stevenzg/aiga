@@ -77,6 +77,20 @@ export class OverlayLayer {
     this.observer.observe(target, { childList: true, subtree: true });
   }
 
+  /**
+   * Add an overlay element from a cross-iframe bridge.
+   * Creates a DOM element from HTML and places it in the overlay layer.
+   */
+  addOverlayFromHtml(html: string, id?: string): HTMLElement | null {
+    const temp = document.createElement('div');
+    temp.innerHTML = html;
+    const el = temp.firstElementChild as HTMLElement | null;
+    if (!el) return null;
+    if (id) el.id = id;
+    this.teleport(el);
+    return el;
+  }
+
   /** Teleport an overlay element to the top-level overlay layer. */
   private teleport(el: HTMLElement): void {
     const wrapper = document.createElement('div');

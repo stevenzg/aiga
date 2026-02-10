@@ -14,6 +14,7 @@ export class NoneSandbox implements SandboxAdapter {
   readonly name = 'none';
   private containers = new Map<string, HTMLElement>();
   private messageHandlers = new Map<string, Set<(data: unknown) => void>>();
+  private listenerCleanups = new Map<string, Set<() => void>>();
 
   async mount(app: AppInstance, container: HTMLElement): Promise<void> {
     this.containers.set(app.id, container);
@@ -25,7 +26,7 @@ export class NoneSandbox implements SandboxAdapter {
     const parsed = new DOMParser().parseFromString(html, 'text/html');
 
     const wrapper = document.createElement('div');
-    wrapper.setAttribute('data-aiga-none', app.name);
+    wrapper.setAttribute('data-aiga-none', app.id);
     while (parsed.body.firstChild) {
       wrapper.appendChild(wrapper.ownerDocument.importNode(parsed.body.firstChild, true));
       parsed.body.removeChild(parsed.body.firstChild);
@@ -53,9 +54,12 @@ export class NoneSandbox implements SandboxAdapter {
   async unmount(app: AppInstance): Promise<void> {
     const container = this.containers.get(app.id);
     if (container) {
-      const wrapper = container.querySelector(`[data-aiga-none="${app.name}"]`);
+      const wrapper = container.querySelector(`[data-aiga-none="${app.id}"]`);
       wrapper?.remove();
     }
+    // Clean up event listeners for this app.
+    this.listenerCleanups.get(app.id)?.forEach((unsub) => unsub());
+    this.listenerCleanups.delete(app.id);
   }
 
   async destroy(app: AppInstance): Promise<void> {
@@ -83,9 +87,21 @@ export class NoneSandbox implements SandboxAdapter {
     const listener = (e: Event) => handler((e as CustomEvent).detail);
     container?.addEventListener('aiga-message-up', listener);
 
-    return () => {
+    // Track for cleanup on unmount.
+    let cleanups = this.listenerCleanups.get(app.id);
+    if (!cleanups) {
+      cleanups = new Set();
+      this.listenerCleanups.set(app.id, cleanups);
+    }
+    const unsub = () => {
       handlers!.delete(handler);
       container?.removeEventListener('aiga-message-up', listener);
+    };
+    cleanups.add(unsub);
+
+    return () => {
+      unsub();
+      cleanups!.delete(unsub);
     };
   }
 

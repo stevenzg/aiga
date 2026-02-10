@@ -4,12 +4,12 @@ import type { IframePool } from '../iframe-pool/pool.js';
 import { setupDomBridge } from './dom-bridge.js';
 import { OverlayLayer } from '../overlay/overlay-layer.js';
 
-/** Derive origin from a URL for secure postMessage. */
+/** Derive origin from a URL for secure postMessage. Throws on invalid URL. */
 function getOrigin(url: string): string {
   try {
     return new URL(url).origin;
   } catch {
-    return '*';
+    throw new Error(`[aiga] Invalid URL for sandbox: ${url}`);
   }
 }
 
@@ -72,9 +72,13 @@ export class StrictSandbox implements SandboxAdapter {
     `);
     shadow.adoptedStyleSheets = [style];
 
-    // Acquire iframe from pool (near-instant, pre-created).
-    const iframe = this.pool.acquire(app.id);
-    this.iframes.set(app.id, iframe);
+    // Reuse existing iframe (keepAlive restore) or acquire from pool.
+    let iframe = this.iframes.get(app.id);
+    const isRestore = !!iframe;
+    if (!iframe) {
+      iframe = this.pool.acquire(app.id);
+      this.iframes.set(app.id, iframe);
+    }
 
     // Wrap iframe in a container inside Shadow DOM.
     const wrapper = document.createElement('div');
@@ -93,32 +97,34 @@ export class StrictSandbox implements SandboxAdapter {
     // Set up auto-resizing: listen for height changes from the iframe.
     this.setupAutoResize(app.id, iframe);
 
-    // Navigate the iframe to the sub-app URL.
-    // Note: allow-same-origin is needed for the DOM bridge to inject scripts
-    // into same-origin iframes. The iframe itself provides JS isolation.
-    iframe.removeAttribute('sandbox');
-    iframe.setAttribute(
-      'sandbox',
-      'allow-scripts allow-same-origin allow-forms allow-popups allow-modals',
-    );
-    iframe.setAttribute('allow', 'clipboard-read; clipboard-write');
-    iframe.src = app.src;
+    // Only navigate on fresh mount (not keepAlive restore).
+    if (!isRestore) {
+      // Note: allow-same-origin is needed for the DOM bridge to inject scripts
+      // into same-origin iframes. The iframe itself provides JS isolation.
+      iframe.removeAttribute('sandbox');
+      iframe.setAttribute(
+        'sandbox',
+        'allow-scripts allow-same-origin allow-forms allow-popups allow-modals',
+      );
+      iframe.setAttribute('allow', 'clipboard-read; clipboard-write');
+      iframe.src = app.src;
 
-    // Wait for the iframe to load.
-    await new Promise<void>((resolve, reject) => {
-      const onLoad = () => {
-        iframe.removeEventListener('load', onLoad);
-        iframe.removeEventListener('error', onError);
-        resolve();
-      };
-      const onError = () => {
-        iframe.removeEventListener('load', onLoad);
-        iframe.removeEventListener('error', onError);
-        reject(new Error(`Failed to load iframe for ${app.src}`));
-      };
-      iframe.addEventListener('load', onLoad);
-      iframe.addEventListener('error', onError);
-    });
+      // Wait for the iframe to load.
+      await new Promise<void>((resolve, reject) => {
+        const onLoad = () => {
+          iframe.removeEventListener('load', onLoad);
+          iframe.removeEventListener('error', onError);
+          resolve();
+        };
+        const onError = () => {
+          iframe.removeEventListener('load', onLoad);
+          iframe.removeEventListener('error', onError);
+          reject(new Error(`Failed to load iframe for ${app.src}`));
+        };
+        iframe.addEventListener('load', onLoad);
+        iframe.addEventListener('error', onError);
+      });
+    }
   }
 
   async unmount(app: AppInstance): Promise<void> {
@@ -151,14 +157,11 @@ export class StrictSandbox implements SandboxAdapter {
     this.overlays.get(app.id)?.dispose();
     this.overlays.delete(app.id);
 
+    // Preserve iframe reference for keepAlive restore.
+    // Don't release to pool or delete — destroy() handles permanent cleanup.
     const iframe = this.iframes.get(app.id);
     if (iframe) {
-      if (app.keepAlive) {
-        iframe.remove();
-      } else {
-        this.pool.release(iframe);
-      }
-      this.iframes.delete(app.id);
+      app.iframe = iframe;
     }
 
     const shadow = this.shadowRoots.get(app.id);
@@ -177,7 +180,9 @@ export class StrictSandbox implements SandboxAdapter {
     // Unmount first (cleans up listeners, overlays, shadow DOM).
     await this.unmount(app);
 
-    // Then permanently remove the iframe from the pool.
+    // Permanently clean up iframe.
+    this.iframes.delete(app.id);
+    app.iframe = null;
     if (iframe) {
       this.pool.remove(iframe);
     }

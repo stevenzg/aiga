@@ -1,12 +1,12 @@
 import type { SandboxAdapter } from './adapter.js';
 import type { AppInstance } from '../types.js';
 
-/** Derive origin from a URL for secure postMessage. */
+/** Derive origin from a URL for secure postMessage. Throws on invalid URL. */
 function getOrigin(url: string): string {
   try {
     return new URL(url).origin;
   } catch {
-    return '*';
+    throw new Error(`[aiga] Invalid URL for sandbox: ${url}`);
   }
 }
 
@@ -39,98 +39,87 @@ export class RemoteSandbox implements SandboxAdapter {
     const origin = getOrigin(app.src);
     this.appOrigins.set(app.id, origin);
 
-    const iframe = document.createElement('iframe');
-    iframe.setAttribute('data-aiga-remote', app.name);
-    iframe.style.cssText = 'border:none;width:100%;min-height:200px;display:block;';
+    // Reuse existing iframe (keepAlive restore) or create new one.
+    let iframe = this.iframes.get(app.id);
+    const isRestore = !!iframe;
 
-    // Security: omit allow-same-origin for untrusted content.
-    iframe.setAttribute(
-      'sandbox',
-      'allow-scripts allow-forms allow-popups allow-modals',
-    );
-    iframe.setAttribute('allow', 'clipboard-read; clipboard-write');
-    iframe.setAttribute('loading', 'lazy');
+    if (!iframe) {
+      iframe = document.createElement('iframe');
+      iframe.setAttribute('data-aiga-remote', app.name);
+      iframe.style.cssText = 'border:none;width:100%;min-height:200px;display:block;';
 
-    this.iframes.set(app.id, iframe);
+      // Security: omit allow-same-origin for untrusted content.
+      iframe.setAttribute(
+        'sandbox',
+        'allow-scripts allow-forms allow-popups allow-modals',
+      );
+      iframe.setAttribute('allow', 'clipboard-read; clipboard-write');
+      iframe.setAttribute('loading', 'lazy');
+      this.iframes.set(app.id, iframe);
+    }
+
     container.appendChild(iframe);
 
-    iframe.src = app.src;
+    // Only navigate on fresh mount (not keepAlive restore).
+    if (!isRestore) {
+      iframe.src = app.src;
 
-    // Wait for load.
-    await new Promise<void>((resolve, reject) => {
-      const onLoad = () => {
-        iframe.removeEventListener('load', onLoad);
-        iframe.removeEventListener('error', onError);
-        resolve();
-      };
-      const onError = () => {
-        iframe.removeEventListener('load', onLoad);
-        iframe.removeEventListener('error', onError);
-        reject(new Error(`Failed to load remote iframe for ${app.src}`));
-      };
-      iframe.addEventListener('load', onLoad);
-      iframe.addEventListener('error', onError);
-    });
+      // Wait for load.
+      await new Promise<void>((resolve, reject) => {
+        const onLoad = () => {
+          iframe.removeEventListener('load', onLoad);
+          iframe.removeEventListener('error', onError);
+          resolve();
+        };
+        const onError = () => {
+          iframe.removeEventListener('load', onLoad);
+          iframe.removeEventListener('error', onError);
+          reject(new Error(`Failed to load remote iframe for ${app.src}`));
+        };
+        iframe.addEventListener('load', onLoad);
+        iframe.addEventListener('error', onError);
+      });
+    }
 
     // Auto-resize for same-origin, message-based for cross-origin.
     this.setupAutoResize(app.id, iframe);
   }
 
-  async unmount(app: AppInstance): Promise<void> {
-    // Clean up resize listener.
-    const resizeListener = this.resizeListeners.get(app.id);
+  /** Common cleanup for listeners/observers. */
+  private cleanupListeners(appId: string): void {
+    const resizeListener = this.resizeListeners.get(appId);
     if (resizeListener) {
       window.removeEventListener('message', resizeListener);
-      this.resizeListeners.delete(app.id);
+      this.resizeListeners.delete(appId);
     }
 
-    // Clean up resize observer.
-    const resizeObserver = this.resizeObservers.get(app.id);
+    const resizeObserver = this.resizeObservers.get(appId);
     if (resizeObserver) {
       resizeObserver.disconnect();
-      this.resizeObservers.delete(app.id);
+      this.resizeObservers.delete(appId);
     }
 
-    // Clean up message listener.
-    const listener = this.messageListeners.get(app.id);
+    const listener = this.messageListeners.get(appId);
     if (listener) {
       window.removeEventListener('message', listener);
-      this.messageListeners.delete(app.id);
+      this.messageListeners.delete(appId);
     }
+  }
 
+  async unmount(app: AppInstance): Promise<void> {
+    this.cleanupListeners(app.id);
+
+    // Preserve iframe reference for keepAlive restore.
     const iframe = this.iframes.get(app.id);
     if (iframe) {
-      if (!app.keepAlive) {
-        iframe.src = 'about:blank';
-        iframe.remove();
-      }
-      this.iframes.delete(app.id);
+      app.iframe = iframe;
     }
 
     this.appOrigins.delete(app.id);
   }
 
   async destroy(app: AppInstance): Promise<void> {
-    // Clean up resize listener.
-    const resizeListener = this.resizeListeners.get(app.id);
-    if (resizeListener) {
-      window.removeEventListener('message', resizeListener);
-      this.resizeListeners.delete(app.id);
-    }
-
-    // Clean up resize observer.
-    const resizeObserver = this.resizeObservers.get(app.id);
-    if (resizeObserver) {
-      resizeObserver.disconnect();
-      this.resizeObservers.delete(app.id);
-    }
-
-    // Clean up message listener.
-    const listener = this.messageListeners.get(app.id);
-    if (listener) {
-      window.removeEventListener('message', listener);
-      this.messageListeners.delete(app.id);
-    }
+    this.cleanupListeners(app.id);
 
     const iframe = this.iframes.get(app.id);
     if (iframe) {
@@ -138,6 +127,7 @@ export class RemoteSandbox implements SandboxAdapter {
       iframe.remove();
       this.iframes.delete(app.id);
     }
+    app.iframe = null;
 
     this.appOrigins.delete(app.id);
   }

@@ -221,16 +221,22 @@ sw.addEventListener('message', (event: ExtendableMessageEvent) => {
 
   switch (data.command) {
     case 'precache':
-      precacheUrls(data.urls as string[]);
+      if (Array.isArray(data.urls) && data.urls.every((u: unknown) => typeof u === 'string')) {
+        precacheUrls(data.urls);
+      }
       break;
     case 'clear':
       clearCache();
       break;
     case 'evict':
-      evictUrl(data.url as string);
+      if (typeof data.url === 'string') {
+        evictUrl(data.url);
+      }
       break;
     case 'register-version':
-      registerVersion(data.package as string, data.version as string);
+      if (typeof data.package === 'string' && typeof data.version === 'string') {
+        registerVersion(data.package, data.version);
+      }
       break;
     case 'get-resolved-versions':
       event.source?.postMessage({

@@ -91,9 +91,7 @@ export class Aiga {
 
   /** Initialize the Service Worker layer. */
   async initServiceWorker(): Promise<void> {
-    if (this.config.cache?.enabled !== false) {
-      this.swController = await registerServiceWorker(this.config.cache);
-    }
+    this.swController = await registerServiceWorker(this.config.cache);
   }
 
   /** Get the Service Worker controller for cache operations. */
