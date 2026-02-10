@@ -2,6 +2,7 @@ import type { AppInstance, AppStatus, SandboxLevel } from './core/types.js';
 import type { SandboxAdapter } from './core/sandbox/adapter.js';
 import { Aiga } from './core/aiga.js';
 import { RpcChannel } from './core/rpc/channel.js';
+import { getAigaAppStyles } from './aiga-app-styles.js';
 
 let instanceCounter = 0;
 
@@ -137,10 +138,10 @@ export class AigaAppElement extends HTMLElement {
         if (shouldRestore) {
           const aiga = Aiga.getInstance();
           if (aiga.keepAlive.has(appId)) {
-            return this.restoreFromKeepAlive();
+            return this.mountApp(true);
           }
         }
-        return this.mount();
+        return this.mountApp(false);
       });
     }
   }
@@ -178,54 +179,7 @@ export class AigaAppElement extends HTMLElement {
     if (this.rendered) return;
     this.rendered = true;
 
-    const style = new CSSStyleSheet();
-    style.replaceSync(`
-      :host {
-        display: block;
-        position: relative;
-        width: 100%;
-        min-height: 0;
-      }
-      :host([hidden]) {
-        display: none;
-      }
-      .aiga-container {
-        width: 100%;
-        height: 100%;
-        position: relative;
-      }
-      .aiga-loading {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 2rem;
-        color: #888;
-        font-family: system-ui, -apple-system, sans-serif;
-        font-size: 0.875rem;
-      }
-      .aiga-error {
-        padding: 1rem;
-        color: #dc2626;
-        background: #fef2f2;
-        border: 1px solid #fecaca;
-        border-radius: 0.5rem;
-        font-family: system-ui, -apple-system, sans-serif;
-        font-size: 0.875rem;
-      }
-      .aiga-spinner {
-        width: 1.25rem;
-        height: 1.25rem;
-        border: 2px solid #e5e7eb;
-        border-top-color: #3b82f6;
-        border-radius: 50%;
-        animation: spin 0.6s linear infinite;
-        margin-right: 0.5rem;
-      }
-      @keyframes spin {
-        to { transform: rotate(360deg); }
-      }
-    `);
-    this.shadow.adoptedStyleSheets = [style];
+    this.shadow.adoptedStyleSheets = [getAigaAppStyles()];
 
     this.container = document.createElement('div');
     this.container.className = 'aiga-container';
@@ -240,37 +194,50 @@ export class AigaAppElement extends HTMLElement {
     this.app.props = this._props;
   }
 
-  private async mount(): Promise<void> {
+  /**
+   * Mount or restore the sub-application.
+   * Unified logic for both fresh mount and keep-alive restore.
+   */
+  private async mountApp(isRestore: boolean): Promise<void> {
     if (this.mounted || !this.container) return;
 
-    this.setStatus('loading');
-    this.showLoading();
+    if (!isRestore) {
+      this.setStatus('loading');
+      this.showLoading();
+    } else {
+      this.setStatus('mounting');
+    }
 
     try {
       const aiga = Aiga.getInstance();
       const level = this.sandboxLevel;
       this.adapter = aiga.getAdapter(level);
-
       this.app.container = this.container;
 
-      this.setStatus('mounting');
+      if (!isRestore) {
+        this.setStatus('mounting');
+      }
       this.clearContainer();
 
-      // Mount with load timeout (ERR-03).
-      const loadTimeout = aiga.loadTimeout;
-      let timeoutId: ReturnType<typeof setTimeout> | undefined;
-      await Promise.race([
-        this.adapter.mount(this.app, this.container).then((v) => {
-          clearTimeout(timeoutId);
-          return v;
-        }),
-        new Promise<never>((_, reject) => {
-          timeoutId = setTimeout(
-            () => reject(new Error(`Application load timed out after ${loadTimeout}ms`)),
-            loadTimeout,
-          );
-        }),
-      ]);
+      if (!isRestore) {
+        // Mount with load timeout (ERR-03).
+        const loadTimeout = aiga.loadTimeout;
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
+        await Promise.race([
+          this.adapter.mount(this.app, this.container).then((v) => {
+            clearTimeout(timeoutId);
+            return v;
+          }),
+          new Promise<never>((_, reject) => {
+            timeoutId = setTimeout(
+              () => reject(new Error(`Application load timed out after ${loadTimeout}ms`)),
+              loadTimeout,
+            );
+          }),
+        ]);
+      } else {
+        await this.adapter.mount(this.app, this.container);
+      }
 
       // Set up RPC channel for iframe-based sandboxes with origin-scoped targeting.
       if (level === 'strict' || level === 'remote') {
@@ -283,14 +250,24 @@ export class AigaAppElement extends HTMLElement {
       this.inKeepAlive = false;
       this.setStatus('mounted');
 
-      // Send initial props and signal RPC readiness (only for iframe-based sandboxes).
-      if (this.rpc) {
-        if (Object.keys(this._props).length > 0) {
-          this.rpc.emit('props-update', this._props as Record<string, never>);
-        }
+      // Send props and signal readiness.
+      if (this.rpc && Object.keys(this._props).length > 0) {
+        this.rpc.emit('props-update', this._props as Record<string, never>);
+      }
+
+      if (!isRestore && this.rpc) {
         this.dispatchEvent(
           new CustomEvent('rpc-ready', {
             detail: { appName: this.appName },
+            bubbles: true,
+          }),
+        );
+      }
+
+      if (isRestore) {
+        this.dispatchEvent(
+          new CustomEvent('keep-alive-restore', {
+            detail: { appName: this.appName, appId: this.app.id },
             bubbles: true,
           }),
         );
@@ -340,51 +317,9 @@ export class AigaAppElement extends HTMLElement {
     this.setStatus('unmounted');
   }
 
-  /** Restore from keep-alive: fast re-mount without full reload. */
-  private async restoreFromKeepAlive(): Promise<void> {
-    this.setStatus('mounting');
-
-    try {
-      const aiga = Aiga.getInstance();
-      const level = this.sandboxLevel;
-      this.adapter = aiga.getAdapter(level);
-      this.app.container = this.container;
-
-      if (this.container) {
-        this.clearContainer();
-        await this.adapter.mount(this.app, this.container);
-      }
-
-      if (level === 'strict' || level === 'remote') {
-        this.setupRpc(aiga.rpcTimeout);
-      }
-
-      aiga.keepAlive.recordVisit(this.app.id);
-
-      this.mounted = true;
-      this.inKeepAlive = false;
-      this.setStatus('mounted');
-
-      // Re-send props on restore (RPC-13).
-      if (this.rpc && Object.keys(this._props).length > 0) {
-        this.rpc.emit('props-update', this._props as Record<string, never>);
-      }
-
-      this.dispatchEvent(
-        new CustomEvent('keep-alive-restore', {
-          detail: { appName: this.appName, appId: this.app.id },
-          bubbles: true,
-        }),
-      );
-    } catch (err) {
-      this.setStatus('error');
-      this.showError(err instanceof Error ? err : new Error(String(err)));
-    }
-  }
-
   private async remount(): Promise<void> {
     await this.unmountApp();
-    await this.mount();
+    await this.mountApp(false);
   }
 
   private setupRpc(timeout?: number): void {

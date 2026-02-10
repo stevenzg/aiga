@@ -13,6 +13,53 @@
  */
 
 /**
+ * Generate a namespaced storage proxy script block.
+ * Reused for both localStorage and sessionStorage (JS-06).
+ */
+function storageProxySnippet(storageName: string): string {
+  return `
+  try {
+    var _real = window.${storageName};
+    var proxy = {
+      getItem: function(key) { return _real.getItem(storagePrefix + key); },
+      setItem: function(key, value) { _real.setItem(storagePrefix + key, value); },
+      removeItem: function(key) { _real.removeItem(storagePrefix + key); },
+      clear: function() {
+        var toRemove = [];
+        for (var i = 0; i < _real.length; i++) {
+          var k = _real.key(i);
+          if (k && k.indexOf(storagePrefix) === 0) toRemove.push(k);
+        }
+        toRemove.forEach(function(k) { _real.removeItem(k); });
+      },
+      get length() {
+        var count = 0;
+        for (var i = 0; i < _real.length; i++) {
+          var k = _real.key(i);
+          if (k && k.indexOf(storagePrefix) === 0) count++;
+        }
+        return count;
+      },
+      key: function(index) {
+        var count = 0;
+        for (var i = 0; i < _real.length; i++) {
+          var k = _real.key(i);
+          if (k && k.indexOf(storagePrefix) === 0) {
+            if (count === index) return k.slice(storagePrefix.length);
+            count++;
+          }
+        }
+        return null;
+      }
+    };
+    Object.defineProperty(window, '${storageName}', {
+      get: function() { return proxy; },
+      configurable: false
+    });
+  } catch(e) {}`;
+}
+
+/**
  * Generate the bridge script source for injection.
  * The parentOrigin parameter restricts postMessage to the host origin only.
  * The appId is used for localStorage namespacing.
@@ -48,86 +95,10 @@ export function getBridgeScript(parentOrigin?: string, appId?: string): string {
   } catch(e) {}
 
   // Namespace localStorage (JS-06).
-  try {
-    var _realLS = window.localStorage;
-    var lsProxy = {
-      getItem: function(key) { return _realLS.getItem(storagePrefix + key); },
-      setItem: function(key, value) { _realLS.setItem(storagePrefix + key, value); },
-      removeItem: function(key) { _realLS.removeItem(storagePrefix + key); },
-      clear: function() {
-        var toRemove = [];
-        for (var i = 0; i < _realLS.length; i++) {
-          var k = _realLS.key(i);
-          if (k && k.indexOf(storagePrefix) === 0) toRemove.push(k);
-        }
-        toRemove.forEach(function(k) { _realLS.removeItem(k); });
-      },
-      get length() {
-        var count = 0;
-        for (var i = 0; i < _realLS.length; i++) {
-          var k = _realLS.key(i);
-          if (k && k.indexOf(storagePrefix) === 0) count++;
-        }
-        return count;
-      },
-      key: function(index) {
-        var count = 0;
-        for (var i = 0; i < _realLS.length; i++) {
-          var k = _realLS.key(i);
-          if (k && k.indexOf(storagePrefix) === 0) {
-            if (count === index) return k.slice(storagePrefix.length);
-            count++;
-          }
-        }
-        return null;
-      }
-    };
-    Object.defineProperty(window, 'localStorage', {
-      get: function() { return lsProxy; },
-      configurable: false
-    });
-  } catch(e) {}
+${storageProxySnippet('localStorage')}
 
   // Namespace sessionStorage (JS-06).
-  try {
-    var _realSS = window.sessionStorage;
-    var ssProxy = {
-      getItem: function(key) { return _realSS.getItem(storagePrefix + key); },
-      setItem: function(key, value) { _realSS.setItem(storagePrefix + key, value); },
-      removeItem: function(key) { _realSS.removeItem(storagePrefix + key); },
-      clear: function() {
-        var toRemove = [];
-        for (var i = 0; i < _realSS.length; i++) {
-          var k = _realSS.key(i);
-          if (k && k.indexOf(storagePrefix) === 0) toRemove.push(k);
-        }
-        toRemove.forEach(function(k) { _realSS.removeItem(k); });
-      },
-      get length() {
-        var count = 0;
-        for (var i = 0; i < _realSS.length; i++) {
-          var k = _realSS.key(i);
-          if (k && k.indexOf(storagePrefix) === 0) count++;
-        }
-        return count;
-      },
-      key: function(index) {
-        var count = 0;
-        for (var i = 0; i < _realSS.length; i++) {
-          var k = _realSS.key(i);
-          if (k && k.indexOf(storagePrefix) === 0) {
-            if (count === index) return k.slice(storagePrefix.length);
-            count++;
-          }
-        }
-        return null;
-      }
-    };
-    Object.defineProperty(window, 'sessionStorage', {
-      get: function() { return ssProxy; },
-      configurable: false
-    });
-  } catch(e) {}
+${storageProxySnippet('sessionStorage')}
 
   // Namespace document.cookie (SEC-02).
   try {
