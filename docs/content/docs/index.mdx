@@ -3,16 +3,16 @@ title: Introduction
 description: Aiga — Next-generation micro-frontend framework with adaptive sandbox architecture.
 ---
 
-**Aiga** is a micro-frontend framework that lets you embed independent web applications into a host page with adaptive isolation levels, typed cross-app communication, and automatic overlay handling — all through a single `<mf-app>` Web Component.
+**Aiga** is a micro-frontend framework that lets you embed independent web applications into a host page with adaptive isolation levels, typed cross-app communication, and automatic overlay handling — all through a single `<aiga-app>` Web Component.
 
 ## Key Ideas
 
 1. **Adaptive Sandbox Architecture** — 4 isolation tiers (`none`, `light`, `strict`, `remote`) so you choose the right trade-off per sub-app.
-2. **`<mf-app>` Web Component** — Works in React, Vue, Angular, Svelte, or vanilla HTML.
+2. **`<aiga-app>` Web Component** — Works in React, Vue, Angular, Svelte, or vanilla HTML.
 3. **Pre-warmed iframe Pool** — Near-instant (~0ms) iframe acquisition with LRU eviction.
 4. **Typed RPC Channel** — Promise-based `postMessage` with timeout handling and type safety.
 5. **Overlay Teleportation** — Modals and popovers escape Shadow DOM and iframe boundaries automatically.
-6. **Built-in Router** — URL-based routing with nested routes, dynamic params, guards, and `<mf-router-view>`.
+6. **Built-in Router** — URL-based routing with nested routes, dynamic params, guards, and `<aiga-view>`.
 
 ## Quick Start
 
@@ -23,21 +23,21 @@ description: Aiga — Next-generation micro-frontend framework with adaptive san
 </script>
 
 <!-- That's it. Now use it anywhere: -->
-<mf-app src="https://dashboard.app/" sandbox="strict" keep-alive />
-<mf-app src="https://settings.app/" sandbox="light" />
-<mf-app src="https://widget.cdn.com/" sandbox="remote" />
+<aiga-app src="https://dashboard.app/" sandbox="strict" keep-alive />
+<aiga-app src="https://settings.app/" sandbox="light" />
+<aiga-app src="https://widget.cdn.com/" sandbox="remote" />
 ```
 
 ## Architecture at a Glance
 
 | Component | Purpose |
 |---|---|
-| `<mf-app>` | Unified entry point — load, mount, unmount sub-apps |
+| `<aiga-app>` | Unified entry point — load, mount, unmount sub-apps |
 | Sandbox Adapters | 4 implementations: None, Light, Strict, Remote |
 | iframe Pool | Pre-warmed pool with LRU + keep-alive manager |
 | RPC Channel | Typed request/response over postMessage |
 | Overlay Layer | Teleport or promote overlays for correct rendering |
-| Router | URL-based routing with `<mf-router-view>` |
+| Router | URL-based routing with `<aiga-view>` |
 | Service Worker | Cross-iframe resource caching |
 
 Explore the sidebar to learn more about each component, or jump to the [interactive demos](/docs/demos) to see everything in action.

@@ -56,7 +56,7 @@ The key insight: **isolation is not binary**. Different sub-apps have different 
 ## Design Principles
 
 1. **Progressive Isolation** — Start with `none` for trusted code, escalate to `remote` for untrusted. No wasted overhead.
-2. **Zero-Config Default** — `<mf-app src="...">` just works with sensible defaults.
+2. **Zero-Config Default** — `<aiga-app src="...">` just works with sensible defaults.
 3. **Framework Agnostic** — Web Components work everywhere. No React/Vue/Angular coupling.
 4. **Security by Default** — Storage namespacing, cookie isolation, window.top override, origin-validated messaging.
 5. **Overlay-First Design** — Modals, popovers, and drawers work correctly without manual patching.

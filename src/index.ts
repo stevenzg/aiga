@@ -10,18 +10,18 @@
  *   initAiga();
  * </script>
  *
- * <mf-app src="https://dashboard.example.com" />
- * <mf-app src="https://widget.example.com" sandbox="strict" />
- * <mf-app src="https://trusted.example.com" sandbox="light" />
+ * <aiga-app src="https://dashboard.example.com" />
+ * <aiga-app src="https://widget.example.com" sandbox="strict" />
+ * <aiga-app src="https://trusted.example.com" sandbox="light" />
  * ```
  */
 
 // Core types
 export type {
   SandboxLevel,
-  MfAppConfig,
+  AigaAppConfig,
   AppStatus,
-  MfAppEvents,
+  AigaAppEvents,
   AppInstance,
   IframePoolOptions,
   SwCacheConfig,
@@ -66,7 +66,7 @@ export type {
   RouterOptions,
   RouterEvents,
 } from './core/router/router.js';
-export { MfRouterViewElement, registerMfRouterView } from './core/router/router-view.js';
+export { AigaViewElement, registerAigaView } from './core/router/router-view.js';
 
 // Service Worker
 export { registerServiceWorker, SwController } from './sw/register.js';
@@ -75,7 +75,7 @@ export { registerServiceWorker, SwController } from './sw/register.js';
 export { parseSemver, compareSemver, isCompatible, negotiateVersion, VersionRegistry } from './sw/semver.js';
 
 // Web Component
-export { MfAppElement, registerMfApp } from './mf-app.js';
+export { AigaAppElement, registerAigaApp } from './aiga-app.js';
 
 // Framework singleton
 export { Aiga } from './core/aiga.js';
@@ -84,17 +84,18 @@ export { Aiga } from './core/aiga.js';
 
 import type { AigaConfig } from './core/types.js';
 import { Aiga } from './core/aiga.js';
-import { registerMfApp } from './mf-app.js';
-import { registerMfRouterView } from './core/router/router-view.js';
+import { registerAigaApp } from './aiga-app.js';
+import { registerAigaView } from './core/router/router-view.js';
 
 /**
  * Initialize the Aiga micro-frontend framework.
  *
  * Call this once at application startup. It:
- * 1. Registers the `<mf-app>` custom element
- * 2. Initializes the iframe pool with LRU + keep-alive manager
- * 3. Sets up the smart prewarmer for predictive loading
- * 4. Optionally registers the Service Worker resource layer
+ * 1. Registers the `<aiga-app>` custom element
+ * 2. Registers the `<aiga-view>` router outlet
+ * 3. Initializes the iframe pool with LRU + keep-alive manager
+ * 4. Sets up the smart prewarmer for predictive loading
+ * 5. Optionally registers the Service Worker resource layer
  *
  * @example
  * ```ts
@@ -117,8 +118,8 @@ export function initAiga(config?: AigaConfig): Aiga {
   const aiga = Aiga.getInstance(config);
 
   // Register Web Components.
-  registerMfApp();
-  registerMfRouterView();
+  registerAigaApp();
+  registerAigaView();
 
   // Initialize Service Worker if configured (enabled by default when cache config is present).
   if (config?.cache?.enabled !== false && config?.cache) {

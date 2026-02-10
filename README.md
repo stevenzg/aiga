@@ -5,7 +5,7 @@
 One tag. Any framework. Four isolation levels.
 
 ```html
-<mf-app src="https://dashboard.app/" sandbox="strict" keep-alive />
+<aiga-app src="https://dashboard.app/" sandbox="strict" keep-alive />
 ```
 
 ## Why Aiga?
@@ -21,11 +21,11 @@ Existing micro-frontend frameworks force a single isolation strategy for all sub
 
 ## Features
 
-- **`<mf-app>` Web Component** — Works in React, Vue, Angular, Svelte, or vanilla HTML
+- **`<aiga-app>` Web Component** — Works in React, Vue, Angular, Svelte, or vanilla HTML
 - **Pre-warmed iframe Pool** — ~0ms acquisition with LRU eviction (vs. 50-100ms cold start)
 - **Typed RPC Channel** — Promise-based postMessage with timeout, origin validation, and type safety
 - **Overlay Teleportation** — Modals escape Shadow DOM automatically; iframe sub-apps use full-viewport promotion
-- **Built-in Router** — History/hash modes, nested routes, dynamic params, guards, `<mf-router-view>`
+- **Built-in Router** — History/hash modes, nested routes, dynamic params, guards, `<aiga-view>`
 - **Keep-Alive & Prewarming** — LRU keep-alive preserves state; smart prewarmer predicts next-page loads
 - **Security by Default** — Cookie/storage namespacing, `window.top` override, origin-validated messaging, CORS detection
 - **Service Worker Cache** — Cross-iframe resource caching with cache-first, network-first, or SWR strategies
@@ -47,13 +47,13 @@ const aiga = initAiga({
 
 ```html
 <!-- Strict isolation with keep-alive -->
-<mf-app src="https://dashboard.app/" sandbox="strict" keep-alive />
+<aiga-app src="https://dashboard.app/" sandbox="strict" keep-alive />
 
 <!-- Light isolation for internal apps -->
-<mf-app src="https://settings.internal/" sandbox="light" />
+<aiga-app src="https://settings.internal/" sandbox="light" />
 
 <!-- No isolation for trusted modules -->
-<mf-app src="/modules/header.html" sandbox="none" />
+<aiga-app src="/modules/header.html" sandbox="none" />
 ```
 
 ## Routing
@@ -71,7 +71,7 @@ const router = new Router({
   notFound: { src: '/404.html' },
 });
 
-const view = document.querySelector('mf-router-view');
+const view = document.querySelector('aiga-view');
 view.router = router;
 ```
 
@@ -103,7 +103,7 @@ app.props = { userId: 42, theme: 'dark' };
 
 ```
 Host Application
-├── <mf-app> Web Component     ← Unified entry point
+├── <aiga-app> Web Component     ← Unified entry point
 ├── Sandbox Adapters           ← none / light / strict / remote
 ├── iframe Pool                ← Pre-warmed + LRU eviction
 ├── RPC Channel                ← Typed postMessage
@@ -136,7 +136,7 @@ Visit `http://localhost:3000` for the full documentation site with interactive d
 ```
 src/
 ├── index.ts                    # Public API + initAiga()
-├── mf-app.ts                   # <mf-app> Web Component
+├── aiga-app.ts                 # <aiga-app> Web Component
 ├── core/
 │   ├── aiga.ts                 # Singleton framework instance
 │   ├── types.ts                # Core type definitions
@@ -160,7 +160,7 @@ src/
 │   │   └── overlay-layer.ts    # Overlay detection + teleportation
 │   └── router/
 │       ├── router.ts           # URL-based router
-│       └── router-view.ts      # <mf-router-view> component
+│       └── router-view.ts      # <aiga-view> component
 ├── sw/
 │   ├── worker.ts               # Service Worker (separate build)
 │   └── register.ts             # SW registration helper

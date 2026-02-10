@@ -13,7 +13,7 @@ export interface SandboxAdapter {
 
   /**
    * Mount the sub-application into the given container element.
-   * The container is typically a Shadow DOM host managed by `<mf-app>`.
+   * The container is typically a Shadow DOM host managed by `<aiga-app>`.
    */
   mount(app: AppInstance, container: HTMLElement): Promise<void>;
 
@@ -25,7 +25,7 @@ export interface SandboxAdapter {
 
   /**
    * Completely destroy the sandbox and release all resources.
-   * Called when the `<mf-app>` element is removed from the DOM.
+   * Called when the `<aiga-app>` element is removed from the DOM.
    */
   destroy(app: AppInstance): Promise<void>;
 

@@ -123,16 +123,16 @@ router.go(-2);                          // history.go(-2)
 ## Declarative View
 
 ```html
-<mf-router-view></mf-router-view>
+<aiga-view></aiga-view>
 ```
 
 ```ts
-const view = document.querySelector('mf-router-view');
+const view = document.querySelector('aiga-view');
 view.router = router;
 ```
 
-The `<mf-router-view>` automatically:
-- Creates `<mf-app>` elements for matched routes
+The `<aiga-view>` automatically:
+- Creates `<aiga-app>` elements for matched routes
 - Reuses elements when the same src matches (only updates props)
 - Passes `$route` as props: `{ params, query, path }`
 

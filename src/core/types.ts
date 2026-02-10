@@ -9,7 +9,7 @@
 export type SandboxLevel = 'none' | 'light' | 'strict' | 'remote';
 
 /** Configuration for a micro-frontend application instance. */
-export interface MfAppConfig {
+export interface AigaAppConfig {
   /** URL of the sub-application to load. */
   src: string;
   /** Sandbox isolation level. Defaults to `'strict'`. */
@@ -33,7 +33,7 @@ export type AppStatus =
   | 'error';
 
 /** Events emitted during the micro-frontend lifecycle. */
-export interface MfAppEvents {
+export interface AigaAppEvents {
   'status-change': CustomEvent<{ status: AppStatus; prevStatus: AppStatus }>;
   'error': CustomEvent<{ error: Error; phase: string }>;
   'rpc-ready': CustomEvent<{ appName: string }>;

@@ -6,12 +6,12 @@ import { RpcChannel } from './core/rpc/channel.js';
 let instanceCounter = 0;
 
 /**
- * `<mf-app>` — The unified micro-frontend Web Component.
+ * `<aiga-app>` — The unified micro-frontend Web Component.
  *
  * Usage:
- *   <mf-app src="https://app.example.com" />
- *   <mf-app src="https://app.example.com" sandbox="strict" />
- *   <mf-app src="https://app.example.com" sandbox="strict" keep-alive />
+ *   <aiga-app src="https://app.example.com" />
+ *   <aiga-app src="https://app.example.com" sandbox="strict" />
+ *   <aiga-app src="https://app.example.com" sandbox="strict" keep-alive />
  *
  * Works in any framework: React, Vue, Angular, Svelte, or vanilla HTML.
  *
@@ -22,8 +22,8 @@ let instanceCounter = 0;
  *   - `keep-alive-start` — Fired when the app enters keep-alive state.
  *   - `keep-alive-restore` — Fired when a kept-alive app is re-mounted.
  */
-export class MfAppElement extends HTMLElement {
-  static readonly tagName = 'mf-app';
+export class AigaAppElement extends HTMLElement {
+  static readonly tagName = 'aiga-app';
 
   static get observedAttributes(): string[] {
     return ['src', 'sandbox', 'keep-alive', 'name'];
@@ -48,7 +48,7 @@ export class MfAppElement extends HTMLElement {
   constructor() {
     super();
 
-    const id = `mf_${++instanceCounter}`;
+    const id = `aiga_${++instanceCounter}`;
     this.app = {
       id,
       name: '',
@@ -189,11 +189,11 @@ export class MfAppElement extends HTMLElement {
       :host([hidden]) {
         display: none;
       }
-      .mf-container {
+      .aiga-container {
         width: 100%;
         position: relative;
       }
-      .mf-loading {
+      .aiga-loading {
         display: flex;
         align-items: center;
         justify-content: center;
@@ -202,7 +202,7 @@ export class MfAppElement extends HTMLElement {
         font-family: system-ui, -apple-system, sans-serif;
         font-size: 0.875rem;
       }
-      .mf-error {
+      .aiga-error {
         padding: 1rem;
         color: #dc2626;
         background: #fef2f2;
@@ -211,7 +211,7 @@ export class MfAppElement extends HTMLElement {
         font-family: system-ui, -apple-system, sans-serif;
         font-size: 0.875rem;
       }
-      .mf-spinner {
+      .aiga-spinner {
         width: 1.25rem;
         height: 1.25rem;
         border: 2px solid #e5e7eb;
@@ -445,9 +445,9 @@ export class MfAppElement extends HTMLElement {
   }
 }
 
-/** Register the `<mf-app>` custom element. */
-export function registerMfApp(): void {
-  if (!customElements.get(MfAppElement.tagName)) {
-    customElements.define(MfAppElement.tagName, MfAppElement);
+/** Register the `<aiga-app>` custom element. */
+export function registerAigaApp(): void {
+  if (!customElements.get(AigaAppElement.tagName)) {
+    customElements.define(AigaAppElement.tagName, AigaAppElement);
   }
 }

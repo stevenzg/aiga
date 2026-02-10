@@ -63,10 +63,10 @@ unsub();
 
 ## Props via RPC
 
-The `<mf-app>` element has a `props` property that automatically sends updates via RPC:
+The `<aiga-app>` element has a `props` property that automatically sends updates via RPC:
 
 ```ts
-const app = document.querySelector('mf-app');
+const app = document.querySelector('aiga-app');
 
 // Sends 'props-update' event via RPC
 app.props = { userId: 42, permissions: ['read', 'write'] };

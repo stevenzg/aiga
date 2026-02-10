@@ -85,7 +85,7 @@ export interface RouterEvents {
  * Aiga Router.
  *
  * Manages URL-based routing for micro-frontend applications.
- * Works with `<mf-app>` elements via the `<mf-router-view>` component
+ * Works with `<aiga-app>` elements via the `<aiga-view>` component
  * or programmatic API.
  *
  * @example

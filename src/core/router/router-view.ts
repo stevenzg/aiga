@@ -1,25 +1,25 @@
 /**
- * `<mf-router-view>` — Declarative router outlet for Aiga.
+ * `<aiga-view>` — Declarative router outlet for Aiga.
  *
  * Listens to Router events and automatically renders the matched
- * `<mf-app>` element with the correct src and sandbox attributes.
+ * `<aiga-app>` element with the correct src and sandbox attributes.
  *
  * @example
  * ```html
- * <mf-router-view></mf-router-view>
+ * <aiga-view></aiga-view>
  * ```
  *
  * ```ts
  * const router = new Router({ routes: [...] });
- * const view = document.querySelector('mf-router-view');
+ * const view = document.querySelector('aiga-view');
  * view.router = router;
  * ```
  */
 
 import type { Router, MatchedRoute } from './router.js';
 
-export class MfRouterViewElement extends HTMLElement {
-  static readonly tagName = 'mf-router-view';
+export class AigaViewElement extends HTMLElement {
+  static readonly tagName = 'aiga-view';
 
   private _router: Router | null = null;
   private unsubscribe: (() => void) | null = null;
@@ -76,28 +76,28 @@ export class MfRouterViewElement extends HTMLElement {
       return;
     }
 
-    // Create a new <mf-app> element.
+    // Create a new <aiga-app> element.
     this.innerHTML = '';
-    const mfApp = document.createElement('mf-app');
-    mfApp.setAttribute('src', appConfig.src);
+    const aigaApp = document.createElement('aiga-app');
+    aigaApp.setAttribute('src', appConfig.src);
     if (appConfig.sandbox) {
-      mfApp.setAttribute('sandbox', appConfig.sandbox);
+      aigaApp.setAttribute('sandbox', appConfig.sandbox);
     }
 
     // Pass route params and query as props.
-    (mfApp as unknown as { props: Record<string, unknown> }).props = {
+    (aigaApp as unknown as { props: Record<string, unknown> }).props = {
       ...(appConfig.props ?? {}),
       $route: { params: route.params, query: route.query, path: route.path },
     };
 
-    this.appendChild(mfApp);
-    this.currentApp = mfApp;
+    this.appendChild(aigaApp);
+    this.currentApp = aigaApp;
   }
 }
 
-/** Register the `<mf-router-view>` custom element. */
-export function registerMfRouterView(): void {
-  if (!customElements.get(MfRouterViewElement.tagName)) {
-    customElements.define(MfRouterViewElement.tagName, MfRouterViewElement);
+/** Register the `<aiga-view>` custom element. */
+export function registerAigaView(): void {
+  if (!customElements.get(AigaViewElement.tagName)) {
+    customElements.define(AigaViewElement.tagName, AigaViewElement);
   }
 }

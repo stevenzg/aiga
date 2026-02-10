@@ -24,16 +24,16 @@ const aiga = initAiga({
 });
 ```
 
-This registers the `<mf-app>` and `<mf-router-view>` custom elements and creates the iframe pool.
+This registers the `<aiga-app>` and `<aiga-view>` custom elements and creates the iframe pool.
 
 ### 2. Mount a sub-app
 
 ```html
-<mf-app
+<aiga-app
   src="https://dashboard.example.com/"
   sandbox="strict"
   keep-alive
-></mf-app>
+></aiga-app>
 ```
 
 That's it. The sub-app loads in a pooled iframe with full JS/CSS isolation, automatic overlay handling, and keep-alive state preservation.
@@ -46,7 +46,7 @@ That's it. The sub-app loads in a pooled iframe with full JS/CSS isolation, auto
 **`none`** — For trusted, same-team modules that share the host runtime.
 
 ```html
-<mf-app src="/modules/header.html" sandbox="none" />
+<aiga-app src="/modules/header.html" sandbox="none" />
 ```
 
 </Step>
@@ -55,7 +55,7 @@ That's it. The sub-app loads in a pooled iframe with full JS/CSS isolation, auto
 **`light`** — For internal apps that need CSS isolation but share JS APIs.
 
 ```html
-<mf-app src="https://settings.internal/" sandbox="light" keep-alive />
+<aiga-app src="https://settings.internal/" sandbox="light" keep-alive />
 ```
 
 </Step>
@@ -64,7 +64,7 @@ That's it. The sub-app loads in a pooled iframe with full JS/CSS isolation, auto
 **`strict`** — For cross-team or third-party apps that need full isolation.
 
 ```html
-<mf-app src="https://dashboard.partner.com/" sandbox="strict" keep-alive />
+<aiga-app src="https://dashboard.partner.com/" sandbox="strict" keep-alive />
 ```
 
 </Step>
@@ -73,7 +73,7 @@ That's it. The sub-app loads in a pooled iframe with full JS/CSS isolation, auto
 **`remote`** — For fully untrusted content with no bridge access.
 
 ```html
-<mf-app src="https://external-widget.com/" sandbox="remote" />
+<aiga-app src="https://external-widget.com/" sandbox="remote" />
 ```
 
 </Step>
@@ -82,7 +82,7 @@ That's it. The sub-app loads in a pooled iframe with full JS/CSS isolation, auto
 ### 4. Listen for lifecycle events
 
 ```ts
-const app = document.querySelector('mf-app');
+const app = document.querySelector('aiga-app');
 
 app.addEventListener('status-change', (e) => {
   console.log(`Status: ${e.detail.prevStatus} → ${e.detail.status}`);
@@ -131,13 +131,13 @@ const router = new Router({
 });
 
 // Connect to the view outlet
-const view = document.querySelector('mf-router-view');
+const view = document.querySelector('aiga-view');
 view.router = router;
 ```
 
 ```html
 <!-- Declarative outlet -->
-<mf-router-view></mf-router-view>
+<aiga-view></aiga-view>
 ```
 
 ## Configuration Reference

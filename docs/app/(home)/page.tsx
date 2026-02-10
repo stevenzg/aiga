@@ -56,7 +56,7 @@ const features = [
   },
   {
     icon: Box,
-    title: '<mf-app> Web Component',
+    title: '<aiga-app> Web Component',
     desc: 'One tag works everywhere — React, Vue, Angular, Svelte, or vanilla HTML. No framework lock-in.',
   },
   {
@@ -72,7 +72,7 @@ const features = [
   {
     icon: Route,
     title: 'Built-in Router',
-    desc: 'URL-based routing with nested routes, dynamic params, guards, and a declarative <mf-router-view>.',
+    desc: 'URL-based routing with nested routes, dynamic params, guards, and a declarative <aiga-view>.',
   },
   {
     icon: Timer,
@@ -153,7 +153,7 @@ export default function HomePage() {
             a pre-warmed iframe pool, typed RPC, and automatic overlay handling
             &mdash; in one{' '}
             <code className="rounded bg-muted px-1.5 py-0.5 text-sm font-mono">
-              &lt;mf-app&gt;
+              &lt;aiga-app&gt;
             </code>{' '}
             tag.
           </p>
@@ -184,7 +184,7 @@ export default function HomePage() {
                 <span className="text-muted-foreground">{'<!-- One tag, any framework -->'}</span>
                 {'\n'}
                 <span className="text-blue-500">{'<'}</span>
-                <span className="text-primary font-semibold">{'mf-app'}</span>
+                <span className="text-primary font-semibold">{'aiga-app'}</span>
                 {'\n  '}
                 <span className="text-amber-600">src</span>
                 <span className="text-muted-foreground">=</span>
@@ -313,7 +313,7 @@ export default function HomePage() {
             <pre className="overflow-x-auto">
 {`  Host Application
   ================================================
-  |  <mf-app src="..." sandbox="strict">        |
+  |  <aiga-app src="..." sandbox="strict">      |
   |  +-----------------------------------------+ |
   |  |  Shadow DOM Container                   | |
   |  |  +-----------------------------------+  | |

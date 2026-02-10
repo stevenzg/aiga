@@ -36,7 +36,7 @@ export function SandboxDemo() {
         'CORS detection with friendly error messages',
       ],
       code: `<!-- Trusted internal module, no overhead -->
-<mf-app
+<aiga-app
   src="https://header.internal/"
   sandbox="none"
 />`,
@@ -54,7 +54,7 @@ export function SandboxDemo() {
         'Overlay detection via MutationObserver',
       ],
       code: `<!-- Internal app with CSS isolation -->
-<mf-app
+<aiga-app
   src="https://settings.internal/"
   sandbox="light"
   keep-alive
@@ -73,7 +73,7 @@ export function SandboxDemo() {
         'Auto-resize via ResizeObserver + postMessage fallback',
       ],
       code: `<!-- Third-party widget, full isolation -->
-<mf-app
+<aiga-app
   src="https://dashboard.partner.com/"
   sandbox="strict"
   keep-alive
@@ -91,7 +91,7 @@ export function SandboxDemo() {
         'Auto-resize for same-origin, message-based for cross',
       ],
       code: `<!-- Fully untrusted third-party -->
-<mf-app
+<aiga-app
   src="https://external-widget.com/"
   sandbox="remote"
 />`,
