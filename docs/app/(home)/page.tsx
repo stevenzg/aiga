@@ -95,8 +95,6 @@ const comparisons = [
   {
     framework: 'qiankun',
     isolation: 'Proxy snapshot',
-    strategy: 'Single runtime',
-    overhead: 'Low',
     overlays: 'Manual',
     typing: 'None',
     weaknesses: 'Snapshot pollution leaks; no iframe pool; manual overlay handling',
@@ -104,8 +102,6 @@ const comparisons = [
   {
     framework: 'micro-app',
     isolation: 'Shadow DOM + Proxy',
-    strategy: 'WebComponent',
-    overhead: 'Low-Med',
     overlays: 'Partial',
     typing: 'None',
     weaknesses: 'No tiered isolation; limited cross-app communication',
@@ -113,8 +109,6 @@ const comparisons = [
   {
     framework: 'wujie',
     isolation: 'iframe + Proxy',
-    strategy: 'iframe',
-    overhead: 'Medium',
     overlays: 'iframe promotion',
     typing: 'None',
     weaknesses: 'No iframe pool; all iframes are strict; no keep-alive LRU',
@@ -122,8 +116,6 @@ const comparisons = [
   {
     framework: 'Module Federation',
     isolation: 'None (shared runtime)',
-    strategy: 'Build-time',
-    overhead: 'None',
     overlays: 'N/A',
     typing: 'Partial',
     weaknesses: 'Requires Webpack/Vite plugin; no runtime isolation; tight coupling',
@@ -131,8 +123,6 @@ const comparisons = [
   {
     framework: 'Aiga',
     isolation: '4-tier adaptive',
-    strategy: 'Adaptive sandbox',
-    overhead: '0-30 MB (tunable)',
     overlays: 'Auto (teleport + promotion)',
     typing: 'Full TypeScript RPC',
     weaknesses: '—',
