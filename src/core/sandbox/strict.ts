@@ -159,11 +159,12 @@ export class StrictSandbox implements SandboxAdapter {
         iframe.addEventListener('load', onLoad);
         iframe.addEventListener('error', onError);
       });
-
-      // Send CSS variables to iframe after load (CSS-03).
-      this.sendCssVariables(iframe, origin);
-      this.observeCssVariables(app.id, iframe, origin);
     }
+
+    // Sync CSS variables on both fresh mount and keep-alive restore (CSS-03).
+    // The observer is cleaned up in unmount(), so it must be re-created on restore.
+    this.sendCssVariables(iframe, origin);
+    this.observeCssVariables(app.id, iframe, origin);
   }
 
   async unmount(app: AppInstance): Promise<void> {

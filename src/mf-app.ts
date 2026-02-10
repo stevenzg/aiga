@@ -2,7 +2,6 @@ import type { AppInstance, AppStatus, SandboxLevel } from './core/types.js';
 import type { SandboxAdapter } from './core/sandbox/adapter.js';
 import { Aiga } from './core/aiga.js';
 import { RpcChannel } from './core/rpc/channel.js';
-import { OverlayLayer } from './core/overlay/overlay-layer.js';
 
 let instanceCounter = 0;
 
@@ -33,7 +32,6 @@ export class MfAppElement extends HTMLElement {
   private app: AppInstance;
   private adapter: SandboxAdapter | null = null;
   private rpc: RpcChannel | null = null;
-  private overlay: OverlayLayer | null = null;
   private container: HTMLElement | null = null;
   private shadow: ShadowRoot;
   private mounted = false;
@@ -254,26 +252,23 @@ export class MfAppElement extends HTMLElement {
 
       this.app.container = this.container;
 
-      // Set up overlay layer for strict mode only.
-      // Light sandbox creates its own overlay internally.
-      if (level === 'strict') {
-        this.overlay = new OverlayLayer(this.app.id);
-        this.overlay.observe(this.container);
-      }
-
       this.setStatus('mounting');
       this.clearContainer();
 
       // Mount with load timeout (ERR-03).
       const loadTimeout = aiga.loadTimeout;
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
       await Promise.race([
-        this.adapter.mount(this.app, this.container),
-        new Promise<never>((_, reject) =>
-          setTimeout(
+        this.adapter.mount(this.app, this.container).then((v) => {
+          clearTimeout(timeoutId);
+          return v;
+        }),
+        new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(
             () => reject(new Error(`Application load timed out after ${loadTimeout}ms`)),
             loadTimeout,
-          ),
-        ),
+          );
+        }),
       ]);
 
       // Set up RPC channel for iframe-based sandboxes with origin-scoped targeting.
@@ -313,9 +308,6 @@ export class MfAppElement extends HTMLElement {
     try {
       this.rpc?.dispose();
       this.rpc = null;
-
-      this.overlay?.dispose();
-      this.overlay = null;
 
       if (this.keepAlive) {
         await this.adapter.unmount(this.app);

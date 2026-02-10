@@ -216,8 +216,12 @@ export class Router {
   }
 
   private getCurrentQuery(): Record<string, string> {
+    return this.parseQuery(window.location.search);
+  }
+
+  private parseQuery(search: string): Record<string, string> {
     const params: Record<string, string> = {};
-    const searchParams = new URLSearchParams(window.location.search);
+    const searchParams = new URLSearchParams(search);
     for (const [key, value] of searchParams) {
       params[key] = value;
     }
@@ -225,7 +229,11 @@ export class Router {
   }
 
   private async navigate(path: string, isReplace: boolean): Promise<void> {
-    const matched = this.matchRoute(path, this.routes, []);
+    // Parse query from path argument (not from window.location which hasn't been updated yet).
+    const qIdx = path.indexOf('?');
+    const query = qIdx >= 0 ? this.parseQuery(path.slice(qIdx)) : {};
+
+    const matched = this.matchRoute(path, this.routes, [], query);
 
     if (!matched) {
       // NAV-09: 404 handling.
@@ -243,14 +251,15 @@ export class Router {
     const allowed = await this.runGuards(matched);
     if (!allowed) return;
 
-    // Update URL.
+    // Update URL. Use pushState/replaceState for both modes to avoid
+    // triggering hashchange/popstate events (which would cause duplicate processing).
     const fullPath = this.base + path;
     if (this.mode === 'hash') {
+      const url = window.location.pathname + window.location.search + '#' + path;
       if (isReplace) {
-        const url = window.location.pathname + window.location.search + '#' + path;
         history.replaceState(null, '', url);
       } else {
-        window.location.hash = path;
+        history.pushState(null, '', url);
       }
     } else {
       if (isReplace) {
@@ -366,6 +375,7 @@ export class Router {
     path: string,
     routes: RouteConfig[],
     parentChain: RouteConfig[],
+    queryOverride?: Record<string, string>,
   ): MatchedRoute | null {
     // Split off query string.
     const [pathOnly] = path.split('?');
@@ -379,7 +389,7 @@ export class Router {
         if (prefixResult !== null) {
           const chain = [...parentChain, route];
           const remainder = prefixResult || '/';
-          const childMatch = this.matchRoute(remainder, route.children, chain);
+          const childMatch = this.matchRoute(remainder, route.children, chain, queryOverride);
           if (childMatch) {
             childMatch.params = { ...params, ...childMatch.params };
             return childMatch;
@@ -397,7 +407,7 @@ export class Router {
           params,
           matched: chain,
           fullPath: this.base + path,
-          query: this.getCurrentQuery(),
+          query: queryOverride ?? this.getCurrentQuery(),
           meta: route.meta ?? {},
         };
       }
