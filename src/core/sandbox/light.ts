@@ -8,7 +8,8 @@ import { OverlayLayer } from '../overlay/overlay-layer.js';
  *
  * Content is rendered inside a Shadow DOM boundary for CSS isolation,
  * with a lightweight JS Proxy on `window` to prevent accidental
- * globals leakage. CSS custom properties are forwarded from the host.
+ * globals leakage. CSS custom properties are forwarded from the host
+ * reactively via MutationObserver (CSS-06).
  *
  * Memory overhead: ~2-5 MB.
  */
@@ -19,6 +20,8 @@ export class LightSandbox implements SandboxAdapter {
   private overlays = new Map<string, OverlayLayer>();
   private messageHandlers = new Map<string, Set<(data: unknown) => void>>();
   private listenerCleanups = new Map<string, Set<() => void>>();
+  private cssObservers = new Map<string, MutationObserver>();
+  private errorHandlers = new Map<string, { error: (e: ErrorEvent) => void; rejection: (e: PromiseRejectionEvent) => void }>();
 
   async mount(app: AppInstance, container: HTMLElement): Promise<void> {
     // Create a Shadow DOM root for CSS isolation.
@@ -30,8 +33,9 @@ export class LightSandbox implements SandboxAdapter {
     const shadow = host.attachShadow({ mode: 'open' });
     this.shadowRoots.set(app.id, shadow);
 
-    // Inherit CSS custom properties from the host document.
-    this.inheritCssVariables(shadow);
+    // Inherit CSS custom properties from the host document (reactive — CSS-06).
+    const cssSheet = this.inheritCssVariables(shadow);
+    this.observeCssVariables(app.id, shadow, cssSheet);
 
     // Set up overlay layer for body-mount teleportation.
     const overlayLayer = new OverlayLayer(app.id);
@@ -45,6 +49,9 @@ export class LightSandbox implements SandboxAdapter {
       },
     });
     this.proxies.set(app.id, { revoke: scopedCtx.revoke });
+
+    // Set up error boundary (ERR-01): catch uncaught errors from sub-app scripts.
+    this.setupErrorBoundary(app);
 
     // Fetch and parse HTML content safely (no innerHTML XSS).
     const html = await this.fetchAppHtml(app.src);
@@ -73,6 +80,13 @@ export class LightSandbox implements SandboxAdapter {
     this.listenerCleanups.get(app.id)?.forEach((unsub) => unsub());
     this.listenerCleanups.delete(app.id);
 
+    // Clean up CSS variable observer.
+    this.cssObservers.get(app.id)?.disconnect();
+    this.cssObservers.delete(app.id);
+
+    // Clean up error boundary.
+    this.cleanupErrorBoundary(app.id);
+
     const shadow = this.shadowRoots.get(app.id);
     if (shadow) {
       const host = shadow.host as HTMLElement;
@@ -83,7 +97,7 @@ export class LightSandbox implements SandboxAdapter {
   }
 
   async destroy(app: AppInstance): Promise<void> {
-    // Revoke the window proxy to prevent further access.
+    // Revoke the window proxy to prevent further access (also clears tracked timers).
     this.proxies.get(app.id)?.revoke();
     this.proxies.delete(app.id);
 
@@ -132,9 +146,17 @@ export class LightSandbox implements SandboxAdapter {
   /**
    * Inherit CSS custom properties from the host document and inject
    * them into the Shadow DOM via a constructed stylesheet.
+   * Returns the sheet for reactive updates.
    */
-  private inheritCssVariables(shadow: ShadowRoot): void {
+  private inheritCssVariables(shadow: ShadowRoot): CSSStyleSheet {
     const sheet = new CSSStyleSheet();
+    this.syncCssVariables(sheet);
+    shadow.adoptedStyleSheets = [sheet];
+    return sheet;
+  }
+
+  /** Collect CSS custom properties from :root and sync to the stylesheet. */
+  private syncCssVariables(sheet: CSSStyleSheet): void {
     const rootStyles = getComputedStyle(document.documentElement);
     const vars: string[] = [];
     for (const prop of rootStyles) {
@@ -143,7 +165,44 @@ export class LightSandbox implements SandboxAdapter {
       }
     }
     sheet.replaceSync(`:host { ${vars.join(' ')} }`);
-    shadow.adoptedStyleSheets = [sheet];
+  }
+
+  /**
+   * Observe :root for style attribute changes and re-sync CSS variables (CSS-06).
+   * Uses MutationObserver on documentElement for reactive updates.
+   */
+  private observeCssVariables(appId: string, _shadow: ShadowRoot, sheet: CSSStyleSheet): void {
+    const observer = new MutationObserver(() => {
+      this.syncCssVariables(sheet);
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['style', 'class'],
+    });
+    this.cssObservers.set(appId, observer);
+  }
+
+  /** Set up global error boundary for uncaught errors (ERR-01). */
+  private setupErrorBoundary(app: AppInstance): void {
+    const onError = (e: ErrorEvent) => {
+      console.error(`[aiga] Uncaught error in light sandbox "${app.name}":`, e.error);
+    };
+    const onRejection = (e: PromiseRejectionEvent) => {
+      console.error(`[aiga] Unhandled rejection in light sandbox "${app.name}":`, e.reason);
+    };
+    window.addEventListener('error', onError);
+    window.addEventListener('unhandledrejection', onRejection);
+    this.errorHandlers.set(app.id, { error: onError, rejection: onRejection });
+  }
+
+  /** Clean up error boundary listeners. */
+  private cleanupErrorBoundary(appId: string): void {
+    const handlers = this.errorHandlers.get(appId);
+    if (handlers) {
+      window.removeEventListener('error', handlers.error);
+      window.removeEventListener('unhandledrejection', handlers.rejection);
+      this.errorHandlers.delete(appId);
+    }
   }
 
   /**
@@ -173,8 +232,7 @@ export class LightSandbox implements SandboxAdapter {
         }
         script.replaceWith(newScript);
       } else if (script.textContent) {
-        // Inline scripts: wrap in a scoped execution context.
-        // Use `new Function` with the proxy as `this` and accessible as `window`.
+        // Inline scripts: wrap in a scoped execution context with error boundary (ERR-01).
         try {
           const scopedFn = new Function(
             'window', 'self', 'globalThis', 'document',
@@ -196,8 +254,19 @@ export class LightSandbox implements SandboxAdapter {
   }
 
   private async fetchAppHtml(src: string): Promise<string> {
-    const res = await fetch(src);
-    if (!res.ok) throw new Error(`Failed to fetch ${src}: ${res.status}`);
-    return res.text();
+    try {
+      const res = await fetch(src);
+      if (!res.ok) throw new Error(`Failed to fetch ${src}: ${res.status}`);
+      return res.text();
+    } catch (err) {
+      // Detect CORS errors (ERR-04).
+      if (err instanceof TypeError && err.message.includes('Failed to fetch')) {
+        throw new Error(
+          `[aiga] CORS error loading "${src}". Ensure the server sends ` +
+          `Access-Control-Allow-Origin headers for this origin.`,
+        );
+      }
+      throw err;
+    }
   }
 }

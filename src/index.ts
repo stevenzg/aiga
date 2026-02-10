@@ -38,6 +38,7 @@ export { RemoteSandbox } from './core/sandbox/remote.js';
 // Sandbox internals (advanced usage)
 export { createScopedProxy } from './core/sandbox/proxy-window.js';
 export { setupDomBridge, getBridgeScript } from './core/sandbox/dom-bridge.js';
+export type { DomBridgeOptions } from './core/sandbox/dom-bridge.js';
 
 // iframe Pool
 export { IframePool } from './core/iframe-pool/pool.js';
@@ -54,6 +55,18 @@ export { RpcChannel } from './core/rpc/channel.js';
 export { useMicroApp, useShell, exposeApi } from './core/rpc/proxy.js';
 export type { AsyncProxy } from './core/rpc/proxy.js';
 export type { RpcProxy, Serializable, Unsubscribe } from './core/rpc/types.js';
+
+// Router
+export { Router } from './core/router/router.js';
+export type {
+  RouteConfig as RouterRouteConfig,
+  MatchedRoute,
+  NavigationGuard,
+  NavigationHook,
+  RouterOptions,
+  RouterEvents,
+} from './core/router/router.js';
+export { MfRouterViewElement, registerMfRouterView } from './core/router/router-view.js';
 
 // Service Worker
 export { registerServiceWorker, SwController } from './sw/register.js';
@@ -72,6 +85,7 @@ export { Aiga } from './core/aiga.js';
 import type { AigaConfig } from './core/types.js';
 import { Aiga } from './core/aiga.js';
 import { registerMfApp } from './mf-app.js';
+import { registerMfRouterView } from './core/router/router-view.js';
 
 /**
  * Initialize the Aiga micro-frontend framework.
@@ -102,8 +116,9 @@ import { registerMfApp } from './mf-app.js';
 export function initAiga(config?: AigaConfig): Aiga {
   const aiga = Aiga.getInstance(config);
 
-  // Register the <mf-app> Web Component.
+  // Register Web Components.
   registerMfApp();
+  registerMfRouterView();
 
   // Initialize Service Worker if configured (enabled by default when cache config is present).
   if (config?.cache?.enabled !== false && config?.cache) {

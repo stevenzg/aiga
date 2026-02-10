@@ -5,6 +5,8 @@
  * - Traps property writes to a local scope (prevents globals leakage)
  * - Allows reads to fall through to the real `window` (e.g., DOM APIs)
  * - Intercepts `document.body.appendChild` for overlay detection
+ * - Tracks setTimeout/setInterval for cleanup on revoke (JS-10)
+ * - Intercepts `document.title` writes (DOM-03)
  * - Provides a scoped `eval` and `Function` context
  *
  * This is NOT full iframe-level isolation — it prevents accidental
@@ -21,6 +23,7 @@ export interface ProxyWindowOptions {
 interface ScopedContext {
   proxy: WindowProxy;
   localScope: Record<string, unknown>;
+  /** Revoke the proxy and clear all tracked timers. */
   revoke: () => void;
 }
 
@@ -35,13 +38,15 @@ export function createScopedProxy(options: ProxyWindowOptions): ScopedContext {
   // Track what properties have been locally shadowed.
   const localKeys = new Set<string>();
 
+  // Timer tracking for cleanup (JS-10).
+  const trackedTimeouts = new Set<ReturnType<typeof setTimeout>>();
+  const trackedIntervals = new Set<ReturnType<typeof setInterval>>();
+  const trackedRAFs = new Set<number>();
+
   // Frozen set of properties that should never be proxied.
   const passthrough = new Set([
     'window', 'self', 'globalThis',
     'addEventListener', 'removeEventListener', 'dispatchEvent',
-    'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval',
-    'requestAnimationFrame', 'cancelAnimationFrame',
-    'requestIdleCallback', 'cancelIdleCallback',
     'fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource',
     'Promise', 'Symbol', 'Proxy', 'Reflect',
     'Map', 'Set', 'WeakMap', 'WeakSet',
@@ -58,7 +63,36 @@ export function createScopedProxy(options: ProxyWindowOptions): ScopedContext {
   // Create a cached document proxy (stable identity).
   const documentProxy = createDocumentProxy(shadowRoot, options.onOverlayDetected);
 
-  const { proxy, revoke } = Proxy.revocable(window, {
+  // Timer wrapper functions that track IDs for cleanup.
+  const wrappedSetTimeout = (...args: Parameters<typeof setTimeout>): ReturnType<typeof setTimeout> => {
+    const id = setTimeout(...args);
+    trackedTimeouts.add(id);
+    return id;
+  };
+  const wrappedClearTimeout = (id: ReturnType<typeof setTimeout>): void => {
+    trackedTimeouts.delete(id);
+    clearTimeout(id);
+  };
+  const wrappedSetInterval = (...args: Parameters<typeof setInterval>): ReturnType<typeof setInterval> => {
+    const id = setInterval(...args);
+    trackedIntervals.add(id);
+    return id;
+  };
+  const wrappedClearInterval = (id: ReturnType<typeof setInterval>): void => {
+    trackedIntervals.delete(id);
+    clearInterval(id);
+  };
+  const wrappedRAF = (cb: FrameRequestCallback): number => {
+    const id = requestAnimationFrame(cb);
+    trackedRAFs.add(id);
+    return id;
+  };
+  const wrappedCancelRAF = (id: number): void => {
+    trackedRAFs.delete(id);
+    cancelAnimationFrame(id);
+  };
+
+  const { proxy, revoke: revokeProxy } = Proxy.revocable(window, {
     get(target, prop, receiver) {
       const key = String(prop);
 
@@ -69,6 +103,14 @@ export function createScopedProxy(options: ProxyWindowOptions): ScopedContext {
       if (key === 'window' || key === 'self' || key === 'globalThis') {
         return proxy;
       }
+
+      // Timer wrappers with tracking (JS-10).
+      if (key === 'setTimeout') return wrappedSetTimeout;
+      if (key === 'clearTimeout') return wrappedClearTimeout;
+      if (key === 'setInterval') return wrappedSetInterval;
+      if (key === 'clearInterval') return wrappedClearInterval;
+      if (key === 'requestAnimationFrame') return wrappedRAF;
+      if (key === 'cancelAnimationFrame') return wrappedCancelRAF;
 
       // Check local scope first (locally-written properties).
       if (localKeys.has(key)) {
@@ -113,12 +155,25 @@ export function createScopedProxy(options: ProxyWindowOptions): ScopedContext {
     },
   });
 
+  const revoke = () => {
+    // Clear all tracked timers (JS-10).
+    for (const id of trackedTimeouts) clearTimeout(id);
+    trackedTimeouts.clear();
+    for (const id of trackedIntervals) clearInterval(id);
+    trackedIntervals.clear();
+    for (const id of trackedRAFs) cancelAnimationFrame(id);
+    trackedRAFs.clear();
+
+    revokeProxy();
+  };
+
   return { proxy, localScope, revoke };
 }
 
 /**
  * Create a proxy for `document` that redirects DOM operations
  * to the Shadow DOM root instead of the real document.body.
+ * Also intercepts `title` writes to prevent leaking to host (DOM-03).
  */
 function createDocumentProxy(
   shadowRoot: ShadowRoot,
@@ -144,6 +199,9 @@ function createDocumentProxy(
     return cachedBodyProxy!;
   };
 
+  // Scoped title: sub-app title writes don't leak to host document (DOM-03).
+  let scopedTitle = document.title;
+
   return new Proxy(document, {
     get(target, prop, receiver) {
       const key = String(prop);
@@ -151,6 +209,11 @@ function createDocumentProxy(
       // Redirect body access to our Shadow DOM container (cached proxy).
       if (key === 'body') {
         return getBodyProxy();
+      }
+
+      // Intercept title reads to return scoped value (DOM-03).
+      if (key === 'title') {
+        return scopedTitle;
       }
 
       // Redirect querySelector / querySelectorAll to Shadow DOM scope.
@@ -170,6 +233,19 @@ function createDocumentProxy(
         return value.bind(target);
       }
       return value;
+    },
+
+    set(_target, prop, value) {
+      const key = String(prop);
+
+      // Intercept title writes to scoped storage (DOM-03).
+      if (key === 'title') {
+        scopedTitle = String(value);
+        return true;
+      }
+
+      // Allow other writes through (e.g., document.cookie).
+      return Reflect.set(document, prop, value);
     },
   });
 }
@@ -213,15 +289,27 @@ function createBodyProxy(
   });
 }
 
-/** Quick heuristic to detect overlay-like elements. */
+/**
+ * Heuristic to detect overlay-like elements (OV-13).
+ * Requires strong signals — position:fixed alone is NOT enough
+ * (it could be a header, nav, or sticky sidebar).
+ */
 function isLikelyOverlay(el: HTMLElement): boolean {
-  const style = el.style;
   const className = el.className?.toString?.() ?? '';
   const role = el.getAttribute('role');
 
-  if (style.position === 'fixed' || style.position === 'absolute') return true;
-  if (/\b(modal|overlay|popup|popover|drawer|dropdown|dialog|tooltip|mask|backdrop)\b/i.test(className)) return true;
+  // Semantic role is the strongest signal.
   if (role === 'dialog' || role === 'tooltip' || role === 'alertdialog') return true;
+
+  // Class name matching for common UI library patterns.
+  if (/\b(modal|overlay|popup|popover|drawer|dropdown|dialog|tooltip|mask|backdrop)\b/i.test(className)) return true;
+
+  // position:fixed + high z-index: likely an overlay, not a header.
+  const style = el.style;
+  if (style.position === 'fixed') {
+    const zIndex = parseInt(style.zIndex, 10);
+    if (!isNaN(zIndex) && zIndex > 1000) return true;
+  }
 
   return false;
 }

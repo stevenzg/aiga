@@ -104,6 +104,16 @@ export class Aiga {
     return this.config.defaultSandbox ?? 'strict';
   }
 
+  /** Load timeout in ms (default 10s). */
+  get loadTimeout(): number {
+    return this.config.loadTimeout ?? 10_000;
+  }
+
+  /** RPC call timeout in ms (default 10s). */
+  get rpcTimeout(): number {
+    return this.config.rpcTimeout ?? 10_000;
+  }
+
   /** Tear down the entire framework instance. */
   dispose(): void {
     this.pool.dispose();

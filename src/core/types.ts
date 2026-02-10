@@ -18,6 +18,8 @@ export interface MfAppConfig {
   keepAlive?: boolean;
   /** Custom name identifier for this sub-app instance. */
   name?: string;
+  /** Props to pass to the sub-app via RPC on mount. */
+  props?: Record<string, unknown>;
 }
 
 /** Lifecycle states of a micro-frontend application. */
@@ -48,6 +50,7 @@ export interface AppInstance {
   iframe: HTMLIFrameElement | null;
   keepAlive: boolean;
   lastActiveAt: number;
+  props: Record<string, unknown>;
 }
 
 /** Options for the iframe pool. */
@@ -78,4 +81,8 @@ export interface AigaConfig {
   cache?: SwCacheConfig;
   /** Default sandbox level for all sub-apps. Defaults to `'strict'`. */
   defaultSandbox?: SandboxLevel;
+  /** Timeout in ms for loading sub-apps. Defaults to 10000. */
+  loadTimeout?: number;
+  /** Default timeout in ms for RPC calls. Defaults to 10000. */
+  rpcTimeout?: number;
 }

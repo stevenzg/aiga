@@ -43,6 +43,7 @@ export class RpcChannel {
   constructor(
     private target: Window | null,
     private targetOrigin: string = '*',
+    private timeout: number = 10_000,
   ) {
     this.windowListener = this.handleMessage.bind(this);
     window.addEventListener('message', this.windowListener);
@@ -52,8 +53,8 @@ export class RpcChannel {
    * Create an RPC channel for communicating with an app at the given URL.
    * Automatically derives the target origin for secure postMessage.
    */
-  static forApp(target: Window, appSrc: string): RpcChannel {
-    return new RpcChannel(target, deriveOrigin(appSrc));
+  static forApp(target: Window, appSrc: string, timeout?: number): RpcChannel {
+    return new RpcChannel(target, deriveOrigin(appSrc), timeout);
   }
 
   /** Register a method handler that can be called from the remote side. */
@@ -82,11 +83,10 @@ export class RpcChannel {
     };
 
     return new Promise<T>((resolve, reject) => {
-      // Timeout after 30 seconds.
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`RPC call "${method}" timed out`));
-      }, 30_000);
+      }, this.timeout);
 
       this.pending.set(id, {
         resolve: (v) => {

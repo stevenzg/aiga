@@ -39,6 +39,7 @@ export class MfAppElement extends HTMLElement {
   private mounted = false;
   private inKeepAlive = false;
   private rendered = false;
+  private _props: Record<string, unknown> = {};
 
   /**
    * Lifecycle serialization lock.
@@ -60,6 +61,7 @@ export class MfAppElement extends HTMLElement {
       iframe: null,
       keepAlive: false,
       lastActiveAt: Date.now(),
+      props: {},
     };
 
     this.shadow = this.attachShadow({ mode: 'open' });
@@ -106,6 +108,19 @@ export class MfAppElement extends HTMLElement {
   /** Current lifecycle status. */
   get status(): AppStatus {
     return this.app.status;
+  }
+
+  /** Props to pass to the sub-app via RPC (RPC-13). */
+  get props(): Record<string, unknown> {
+    return this._props;
+  }
+  set props(val: Record<string, unknown>) {
+    this._props = val;
+    this.app.props = val;
+    // Send updated props to the sub-app if RPC channel is active.
+    if (this.rpc) {
+      this.rpc.emit('props-update', val as Record<string, never>);
+    }
   }
 
   // --- Lifecycle ---
@@ -223,6 +238,7 @@ export class MfAppElement extends HTMLElement {
     this.app.sandbox = this.sandboxLevel;
     this.app.keepAlive = this.keepAlive;
     this.app.name = this.appName;
+    this.app.props = this._props;
   }
 
   private async mount(): Promise<void> {
@@ -248,11 +264,21 @@ export class MfAppElement extends HTMLElement {
       this.setStatus('mounting');
       this.clearContainer();
 
-      await this.adapter.mount(this.app, this.container);
+      // Mount with load timeout (ERR-03).
+      const loadTimeout = aiga.loadTimeout;
+      await Promise.race([
+        this.adapter.mount(this.app, this.container),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error(`Application load timed out after ${loadTimeout}ms`)),
+            loadTimeout,
+          ),
+        ),
+      ]);
 
       // Set up RPC channel for iframe-based sandboxes with origin-scoped targeting.
       if (level === 'strict' || level === 'remote') {
-        this.setupRpc();
+        this.setupRpc(aiga.rpcTimeout);
       }
 
       aiga.keepAlive.recordVisit(this.app.id);
@@ -260,6 +286,11 @@ export class MfAppElement extends HTMLElement {
       this.mounted = true;
       this.inKeepAlive = false;
       this.setStatus('mounted');
+
+      // Send initial props to the sub-app (RPC-13).
+      if (this.rpc && Object.keys(this._props).length > 0) {
+        this.rpc.emit('props-update', this._props as Record<string, never>);
+      }
 
       this.dispatchEvent(
         new CustomEvent('rpc-ready', {
@@ -331,7 +362,7 @@ export class MfAppElement extends HTMLElement {
       }
 
       if (level === 'strict' || level === 'remote') {
-        this.setupRpc();
+        this.setupRpc(aiga.rpcTimeout);
       }
 
       aiga.keepAlive.recordVisit(this.app.id);
@@ -339,6 +370,11 @@ export class MfAppElement extends HTMLElement {
       this.mounted = true;
       this.inKeepAlive = false;
       this.setStatus('mounted');
+
+      // Re-send props on restore (RPC-13).
+      if (this.rpc && Object.keys(this._props).length > 0) {
+        this.rpc.emit('props-update', this._props as Record<string, never>);
+      }
 
       this.dispatchEvent(
         new CustomEvent('keep-alive-restore', {
@@ -357,12 +393,12 @@ export class MfAppElement extends HTMLElement {
     await this.mount();
   }
 
-  private setupRpc(): void {
+  private setupRpc(timeout?: number): void {
     const iframe = this.container?.querySelector('iframe') ??
       this.shadow.querySelector('iframe');
     if (iframe?.contentWindow) {
-      // Use origin-scoped RPC channel instead of wildcard.
-      this.rpc = RpcChannel.forApp(iframe.contentWindow, this.app.src);
+      // Use origin-scoped RPC channel with configurable timeout.
+      this.rpc = RpcChannel.forApp(iframe.contentWindow, this.app.src, timeout);
     }
   }
 
