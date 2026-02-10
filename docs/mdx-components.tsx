@@ -8,7 +8,12 @@ import {
   RouterDemo,
   OverlayDemo,
 } from '@/components/demos';
-import { LiveDemo } from '@/components/live-demo';
+import {
+  CrossOriginDemo,
+  TextSyncDemo,
+  CounterDemo,
+  TodosDemo,
+} from '@/components/live-demo';
 
 export function useMDXComponents(components: MDXComponents): MDXComponents {
   return {
@@ -21,7 +26,10 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
     RpcDemo,
     RouterDemo,
     OverlayDemo,
-    LiveDemo,
+    CrossOriginDemo,
+    TextSyncDemo,
+    CounterDemo,
+    TodosDemo,
     ...components,
   };
 }

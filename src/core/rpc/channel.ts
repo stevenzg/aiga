@@ -8,7 +8,7 @@ function nextId(): string {
 /** Derive the origin from a URL for secure postMessage targeting. Throws on invalid URL. */
 function deriveOrigin(url: string): string {
   try {
-    return new URL(url).origin;
+    return new URL(url, window.location.href).origin;
   } catch {
     throw new Error(`[aiga] Invalid URL for RPC target: ${url}`);
   }

@@ -6,7 +6,7 @@ import { setupDomBridge } from './dom-bridge.js';
 /** Derive origin from a URL for secure postMessage. Throws on invalid URL. */
 function getOrigin(url: string): string {
   try {
-    return new URL(url).origin;
+    return new URL(url, window.location.href).origin;
   } catch {
     throw new Error(`[aiga] Invalid URL for sandbox: ${url}`);
   }

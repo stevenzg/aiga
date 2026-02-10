@@ -1,66 +1,23 @@
 ---
-title: Live Demo
-description: See Aiga in action — React and Svelte sub-apps communicating via RPC in real-time.
+title: Cross-Origin Apps
+description: Load cross-origin React and Svelte apps side by side in strict sandbox iframes.
 ---
 
-Three interactive demos showing **cross-framework communication** via Aiga's RPC channel. Each scenario pairs a **React** app (left) with a **Svelte** app (right), running in separate `sandbox="strict"` iframes with full JS/CSS isolation.
+Two independent applications hosted on Vercel, loaded in `sandbox="strict"` iframes with full JS/CSS isolation. This demonstrates Aiga's ability to embed **any cross-origin web app** without configuration from the sub-app side.
 
-The host page relays RPC events between apps:
+<CrossOriginDemo />
 
-```
-React App  ──rpc.emit()──▷  Host  ──rpc.emit()──▷  Svelte App
-```
-
-<LiveDemo />
-
-## How the RPC Relay Works
-
-1. `initAiga()` registers `<aiga-app>` and pre-warms the iframe pool
-2. Each `<aiga-app>` acquires a pooled iframe and loads the sub-app URL
-3. The bridge script is injected (same-origin), overriding `window.parent` and namespacing storage
-4. Sub-apps save `window.parent` before bridge injection, then use `postMessage` with the `__aiga_rpc` protocol
-5. After `rpc-ready` fires, the host listens for events from the left app and forwards them to the right app
-
-```ts
-// Host relay logic
-const leftRpc = leftApp.rpcChannel;
-const rightRpc = rightApp.rpcChannel;
-
-leftRpc.on('content-change', (data) => {
-  rightRpc.emit('content-update', data);
-});
-```
-
-## Sub-app RPC Helper
-
-Each sub-app includes a small inline script that runs before the bridge:
+## Source Code
 
 ```html
-<script>
-  // Capture real parent BEFORE bridge overrides window.parent
-  var host = window.parent;
-
-  window.rpcEmit = function(event, data) {
-    host.postMessage({
-      __aiga_rpc: true, type: 'event',
-      id: 'e_' + (++counter), event: event, data: data
-    }, '*');
-  };
-
-  window.rpcOn = function(event, cb) {
-    window.addEventListener('message', function(e) {
-      if (e.data?.__aiga_rpc && e.data.event === event) cb(e.data.data);
-    });
-  };
-</script>
-```
-
-## Try It Locally
-
-```bash
-# Run the docs site (builds library automatically)
-cd docs && npm run dev
-
-# Or run the standalone example
-cd examples/basic && npm run dev
+<aiga-app
+  name="rosetta-react"
+  src="https://rosetta-react.vercel.app/"
+  sandbox="strict"
+/>
+<aiga-app
+  name="rosetta-svelte"
+  src="https://rosetta-svelte.vercel.app/"
+  sandbox="strict"
+/>
 ```

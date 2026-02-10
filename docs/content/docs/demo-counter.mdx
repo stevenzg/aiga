@@ -1,0 +1,19 @@
+---
+title: Shared Counter
+description: React counter buttons sync with a Svelte visual display via RPC.
+---
+
+Click the buttons in the React app — the Svelte display syncs the count with a visual progress bar.
+
+```
+React Counter ──count-change──▷ Host ──count-update──▷ Svelte Display
+```
+
+<CounterDemo />
+
+## How It Works
+
+1. The React app manages counter state and renders +1, +5, -1, Reset buttons
+2. On every state change, it calls `rpcEmit('count-change', { count })`
+3. The host relays to the Svelte display, which renders the count with a colored bar
+4. All communication goes through Aiga's RPC protocol over postMessage

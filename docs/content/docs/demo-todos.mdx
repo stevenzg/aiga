@@ -1,0 +1,19 @@
+---
+title: Shared Todos
+description: React todo manager syncs with a Svelte list display via RPC.
+---
+
+Add, check, and remove todos in the React app — the Svelte app renders a synced list with progress stats.
+
+```
+React Todos ──todos-change──▷ Host ──todos-update──▷ Svelte List
+```
+
+<TodosDemo />
+
+## How It Works
+
+1. The React app manages a full todo list with add, toggle complete, and delete
+2. On every change, it sends the entire todo array via `rpcEmit('todos-change', { todos })`
+3. The Svelte list receives `todos-update` and renders items with a progress bar showing completion stats
+4. State lives in the React app; the Svelte app is a pure display consumer

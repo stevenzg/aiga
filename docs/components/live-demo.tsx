@@ -15,46 +15,10 @@ interface AppDef {
   sandbox: string;
 }
 
-interface Scenario {
-  id: string;
-  title: string;
-  desc: string;
-  left: AppDef;
-  right: AppDef;
-  /** RPC event emitted by left app → renamed event forwarded to right app */
-  relay: { from: string; to: string };
+interface RelayDef {
+  from: string;
+  to: string;
 }
-
-/* ------------------------------------------------------------------ */
-/*  Demo scenarios                                                     */
-/* ------------------------------------------------------------------ */
-
-const scenarios: Scenario[] = [
-  {
-    id: 'editor',
-    title: 'Cross-app Text Sync',
-    desc: 'Type in the React editor — text appears in the Svelte preview in real-time via RPC.',
-    left:  { name: 'react-editor',   label: 'React Editor',   src: '/demos/react-editor.html',   sandbox: 'strict' },
-    right: { name: 'svelte-preview', label: 'Svelte Preview', src: '/demos/svelte-preview.html', sandbox: 'strict' },
-    relay: { from: 'content-change', to: 'content-update' },
-  },
-  {
-    id: 'counter',
-    title: 'Shared Counter',
-    desc: 'Click buttons in the React app — the Svelte display syncs the count with a visual bar.',
-    left:  { name: 'react-counter',  label: 'React Counter',  src: '/demos/react-counter.html',  sandbox: 'strict' },
-    right: { name: 'svelte-counter', label: 'Svelte Display', src: '/demos/svelte-counter.html', sandbox: 'strict' },
-    relay: { from: 'count-change', to: 'count-update' },
-  },
-  {
-    id: 'todos',
-    title: 'Shared Todo List',
-    desc: 'Add, check, and remove todos in React — Svelte renders a synced list with progress stats.',
-    left:  { name: 'react-todos',  label: 'React Todos',    src: '/demos/react-todos.html',  sandbox: 'strict' },
-    right: { name: 'svelte-todos', label: 'Svelte List',    src: '/demos/svelte-todos.html', sandbox: 'strict' },
-    relay: { from: 'todos-change', to: 'todos-update' },
-  },
-];
 
 const statusColor: Record<AppStatus, string> = {
   idle: 'bg-zinc-400',
@@ -65,25 +29,35 @@ const statusColor: Record<AppStatus, string> = {
 };
 
 /* ------------------------------------------------------------------ */
-/*  LiveDemo — main component                                         */
+/*  Shared Aiga initialization hook                                    */
 /* ------------------------------------------------------------------ */
 
-export function LiveDemo() {
+let aigaPromise: Promise<unknown> | null = null;
+
+function useAiga() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState(scenarios[0].id);
-  const initialized = useRef(false);
 
   useEffect(() => {
-    if (initialized.current) return;
-    initialized.current = true;
-    import('../../dist/aiga.js')
-      .then(({ initAiga }) => {
+    if (!aigaPromise) {
+      aigaPromise = import('../../dist/aiga.js').then(({ initAiga }) => {
         initAiga({ defaultSandbox: 'strict', pool: { initialSize: 3, maxSize: 10 } });
-        setReady(true);
-      })
+      });
+    }
+    aigaPromise
+      .then(() => setReady(true))
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, []);
+
+  return { ready, error };
+}
+
+/* ------------------------------------------------------------------ */
+/*  AigaShell — wrapper with loading/error states                      */
+/* ------------------------------------------------------------------ */
+
+function AigaShell({ children }: { children: React.ReactNode }) {
+  const { ready, error } = useAiga();
 
   if (error) {
     return (
@@ -102,40 +76,22 @@ export function LiveDemo() {
     );
   }
 
-  const scenario = scenarios.find((s) => s.id === activeTab)!;
-
-  return (
-    <div className="space-y-4">
-      {/* Tabs */}
-      <div className="flex flex-wrap gap-2">
-        {scenarios.map((s) => (
-          <button
-            key={s.id}
-            onClick={() => setActiveTab(s.id)}
-            className={`rounded-lg px-4 py-2 text-sm font-medium transition cursor-pointer ${
-              activeTab === s.id
-                ? 'bg-primary text-primary-foreground'
-                : 'border hover:bg-accent'
-            }`}
-          >
-            {s.title}
-          </button>
-        ))}
-      </div>
-
-      <p className="text-sm text-muted-foreground">{scenario.desc}</p>
-
-      {/* Render only the active scenario */}
-      <ScenarioPair key={scenario.id} scenario={scenario} />
-    </div>
-  );
+  return <>{children}</>;
 }
 
 /* ------------------------------------------------------------------ */
 /*  ScenarioPair — two apps side by side with RPC relay                */
 /* ------------------------------------------------------------------ */
 
-function ScenarioPair({ scenario }: { scenario: Scenario }) {
+function ScenarioPair({
+  left,
+  right,
+  relay,
+}: {
+  left: AppDef;
+  right: AppDef;
+  relay: RelayDef;
+}) {
   const leftRef = useRef<HTMLDivElement>(null);
   const rightRef = useRef<HTMLDivElement>(null);
   const [statuses, setStatuses] = useState<Record<string, AppStatus>>({});
@@ -144,7 +100,6 @@ function ScenarioPair({ scenario }: { scenario: Scenario }) {
     setStatuses((prev) => ({ ...prev, [name]: status }));
   }, []);
 
-  // Set up RPC relay: left app emits event → host forwards to right app.
   useEffect(() => {
     const leftEl = leftRef.current?.querySelector('aiga-app') as HTMLElement | null;
     const rightEl = rightRef.current?.querySelector('aiga-app') as HTMLElement | null;
@@ -158,8 +113,8 @@ function ScenarioPair({ scenario }: { scenario: Scenario }) {
       leftRpc = (leftEl as unknown as { rpcChannel: typeof leftRpc }).rpcChannel;
       rightRpc = (rightEl as unknown as { rpcChannel: typeof rightRpc }).rpcChannel;
       if (leftRpc && rightRpc) {
-        unsub = leftRpc.on(scenario.relay.from, (data) => {
-          rightRpc!.emit(scenario.relay.to, data as Record<string, never>);
+        unsub = leftRpc.on(relay.from, (data) => {
+          rightRpc!.emit(relay.to, data as Record<string, never>);
         });
       }
     }
@@ -167,7 +122,6 @@ function ScenarioPair({ scenario }: { scenario: Scenario }) {
     const onReady = () => tryRelay();
     leftEl.addEventListener('rpc-ready', onReady);
     rightEl.addEventListener('rpc-ready', onReady);
-    // Try immediately in case already ready.
     tryRelay();
 
     return () => {
@@ -175,20 +129,20 @@ function ScenarioPair({ scenario }: { scenario: Scenario }) {
       rightEl.removeEventListener('rpc-ready', onReady);
       unsub?.();
     };
-  }, [scenario]);
+  }, [relay]);
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <AppCard
         containerRef={leftRef}
-        app={scenario.left}
-        status={statuses[scenario.left.name] ?? 'idle'}
+        app={left}
+        status={statuses[left.name] ?? 'idle'}
         onStatusChange={onStatus}
       />
       <AppCard
         containerRef={rightRef}
-        app={scenario.right}
-        status={statuses[scenario.right.name] ?? 'idle'}
+        app={right}
+        status={statuses[right.name] ?? 'idle'}
         onStatusChange={onStatus}
       />
     </div>
@@ -241,5 +195,104 @@ function AppCard({
         />
       </div>
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  SingleAppCard — standalone app card without RPC relay              */
+/* ------------------------------------------------------------------ */
+
+function SingleAppCard({ app }: { app: AppDef }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [status, setStatus] = useState<AppStatus>('idle');
+
+  useEffect(() => {
+    const el = ref.current?.querySelector('aiga-app');
+    if (!el) return;
+    const handler = (e: Event) => setStatus((e as CustomEvent).detail.status);
+    el.addEventListener('status-change', handler);
+    return () => el.removeEventListener('status-change', handler);
+  }, []);
+
+  return (
+    <div className="overflow-hidden rounded-xl border bg-card">
+      <div className="flex items-center justify-between border-b px-4 py-2.5">
+        <div className="flex items-center gap-2">
+          <span className={`h-2 w-2 rounded-full ${statusColor[status]}`} />
+          <span className="text-sm font-semibold">{app.label}</span>
+        </div>
+        <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary">
+          {app.sandbox}
+        </span>
+      </div>
+      <div ref={ref} style={{ height: '420px' }}>
+        {/* @ts-expect-error -- aiga-app is a custom element */}
+        <aiga-app
+          name={app.name}
+          src={app.src}
+          sandbox={app.sandbox}
+          style={{ display: 'block', width: '100%', height: '100%' }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/* ================================================================== */
+/*  Exported demo components — one per page                            */
+/* ================================================================== */
+
+/** Cross-origin demo: Rosetta React + Svelte from Vercel */
+export function CrossOriginDemo() {
+  return (
+    <AigaShell>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <SingleAppCard
+          app={{ name: 'rosetta-react', label: 'Rosetta React', src: 'https://rosetta-react.vercel.app/', sandbox: 'strict' }}
+        />
+        <SingleAppCard
+          app={{ name: 'rosetta-svelte', label: 'Rosetta Svelte', src: 'https://rosetta-svelte.vercel.app/', sandbox: 'strict' }}
+        />
+      </div>
+    </AigaShell>
+  );
+}
+
+/** Text sync demo: React editor → Svelte preview via RPC */
+export function TextSyncDemo() {
+  return (
+    <AigaShell>
+      <ScenarioPair
+        left={{ name: 'react-editor', label: 'React Editor', src: '/demos/react-editor.html', sandbox: 'strict' }}
+        right={{ name: 'svelte-preview', label: 'Svelte Preview', src: '/demos/svelte-preview.html', sandbox: 'strict' }}
+        relay={{ from: 'content-change', to: 'content-update' }}
+      />
+    </AigaShell>
+  );
+}
+
+/** Counter demo: React buttons → Svelte display via RPC */
+export function CounterDemo() {
+  return (
+    <AigaShell>
+      <ScenarioPair
+        left={{ name: 'react-counter', label: 'React Counter', src: '/demos/react-counter.html', sandbox: 'strict' }}
+        right={{ name: 'svelte-counter', label: 'Svelte Display', src: '/demos/svelte-counter.html', sandbox: 'strict' }}
+        relay={{ from: 'count-change', to: 'count-update' }}
+      />
+    </AigaShell>
+  );
+}
+
+/** Todo list demo: React todos → Svelte list via RPC */
+export function TodosDemo() {
+  return (
+    <AigaShell>
+      <ScenarioPair
+        left={{ name: 'react-todos', label: 'React Todos', src: '/demos/react-todos.html', sandbox: 'strict' }}
+        right={{ name: 'svelte-todos', label: 'Svelte List', src: '/demos/svelte-todos.html', sandbox: 'strict' }}
+        relay={{ from: 'todos-change', to: 'todos-update' }}
+      />
+    </AigaShell>
   );
 }

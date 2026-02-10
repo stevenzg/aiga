@@ -15,6 +15,10 @@
     "test-scenarios",
     "---Interactive---",
     "demos",
-    "live-demo"
+    "---Live Demos---",
+    "live-demo",
+    "demo-text-sync",
+    "demo-counter",
+    "demo-todos"
   ]
 }
