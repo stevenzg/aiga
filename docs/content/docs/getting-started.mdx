@@ -1,0 +1,166 @@
+---
+title: Getting Started
+description: Install Aiga and mount your first micro-frontend in under 5 minutes.
+---
+
+## Installation
+
+```bash
+npm install aiga
+```
+
+## Basic Usage
+
+### 1. Initialize the framework
+
+```ts
+import { initAiga } from 'aiga';
+
+const aiga = initAiga({
+  defaultSandbox: 'strict',
+  pool: { initialSize: 3, maxSize: 10 },
+  loadTimeout: 10_000,
+  rpcTimeout: 10_000,
+});
+```
+
+This registers the `<aiga-app>` and `<aiga-view>` custom elements and creates the iframe pool.
+
+### 2. Mount a sub-app
+
+```html
+<aiga-app
+  src="https://dashboard.example.com/"
+  sandbox="strict"
+  keep-alive
+></aiga-app>
+```
+
+That's it. The sub-app loads in a pooled iframe with full JS/CSS isolation, automatic overlay handling, and keep-alive state preservation.
+
+### 3. Choose the right sandbox level
+
+<Steps>
+<Step>
+
+**`none`** — For trusted, same-team modules that share the host runtime.
+
+```html
+<aiga-app src="/modules/header.html" sandbox="none" />
+```
+
+</Step>
+<Step>
+
+**`light`** — For internal apps that need CSS isolation but share JS APIs.
+
+```html
+<aiga-app src="https://settings.internal/" sandbox="light" keep-alive />
+```
+
+</Step>
+<Step>
+
+**`strict`** — For cross-team or third-party apps that need full isolation.
+
+```html
+<aiga-app src="https://dashboard.partner.com/" sandbox="strict" keep-alive />
+```
+
+</Step>
+<Step>
+
+**`remote`** — For fully untrusted content with no bridge access.
+
+```html
+<aiga-app src="https://external-widget.com/" sandbox="remote" />
+```
+
+</Step>
+</Steps>
+
+### 4. Listen for lifecycle events
+
+```ts
+const app = document.querySelector('aiga-app');
+
+app.addEventListener('status-change', (e) => {
+  console.log(`Status: ${e.detail.prevStatus} → ${e.detail.status}`);
+});
+
+app.addEventListener('error', (e) => {
+  console.error(`Error in ${e.detail.phase}:`, e.detail.error);
+});
+
+app.addEventListener('rpc-ready', (e) => {
+  console.log(`RPC ready for ${e.detail.appName}`);
+});
+```
+
+### 5. Communicate with sub-apps via RPC
+
+```ts
+// After rpc-ready fires:
+const rpc = app.rpcChannel;
+
+// Call a method exposed by the sub-app
+const result = await rpc.call('getSettings', 'theme');
+
+// Listen for events from the sub-app
+rpc.on('user-action', (data) => {
+  console.log('Sub-app event:', data);
+});
+
+// Send props reactively
+app.props = { userId: 42, theme: 'dark' };
+```
+
+### 6. Set up routing
+
+```ts
+import { Router } from 'aiga';
+
+const router = new Router({
+  mode: 'history',
+  routes: [
+    { path: '/dashboard', app: { src: 'https://dashboard.app/', sandbox: 'strict' } },
+    { path: '/settings', app: { src: 'https://settings.app/', sandbox: 'light' } },
+    { path: '/users/:id', app: { src: 'https://users.app/', sandbox: 'strict' } },
+  ],
+  notFound: { src: '/404.html' },
+});
+
+// Connect to the view outlet
+const view = document.querySelector('aiga-view');
+view.router = router;
+```
+
+```html
+<!-- Declarative outlet -->
+<aiga-view></aiga-view>
+```
+
+## Configuration Reference
+
+```ts
+interface AigaConfig {
+  /** iframe pool options */
+  pool?: {
+    initialSize?: number;  // Default: 3
+    maxSize?: number;      // Default: 10
+    maxAlive?: number;     // Default: 5
+  };
+  /** Service Worker cache */
+  cache?: {
+    enabled?: boolean;
+    swUrl?: string;
+    strategy?: 'cache-first' | 'network-first' | 'stale-while-revalidate';
+  };
+  /** Default sandbox for all sub-apps. Default: 'strict' */
+  defaultSandbox?: 'none' | 'light' | 'strict' | 'remote';
+  /** Load timeout in ms. Default: 10000 */
+  loadTimeout?: number;
+  /** RPC call timeout in ms. Default: 10000 */
+  rpcTimeout?: number;
+}
+```

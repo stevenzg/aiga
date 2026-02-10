@@ -1,0 +1,23 @@
+---
+title: Cross-Origin Apps
+description: Load cross-origin React and Svelte apps side by side in strict sandbox iframes.
+---
+
+Two independent applications hosted on Vercel, loaded in `sandbox="strict"` iframes with full JS/CSS isolation. This demonstrates Aiga's ability to embed **any cross-origin web app** without configuration from the sub-app side.
+
+<CrossOriginDemo />
+
+## Source Code
+
+```html
+<aiga-app
+  name="rosetta-react"
+  src="https://rosetta-react.vercel.app/"
+  sandbox="strict"
+/>
+<aiga-app
+  name="rosetta-svelte"
+  src="https://rosetta-svelte.vercel.app/"
+  sandbox="strict"
+/>
+```

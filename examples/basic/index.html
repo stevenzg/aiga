@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aiga — Micro-Frontend Demo</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --color-bg: #0f172a;
+      --color-surface: #1e293b;
+      --color-border: #334155;
+      --color-text: #f1f5f9;
+      --color-text-muted: #94a3b8;
+      --color-primary: #3b82f6;
+      --color-primary-light: #60a5fa;
+      --color-accent: #8b5cf6;
+      --radius: 0.75rem;
+    }
+
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: var(--color-bg);
+      color: var(--color-text);
+      min-height: 100vh;
+    }
+
+    /* --- Shell Header --- */
+    .shell-header {
+      background: var(--color-surface);
+      border-bottom: 1px solid var(--color-border);
+      padding: 1rem 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(12px);
+    }
+
+    .shell-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .shell-logo-icon {
+      width: 2rem;
+      height: 2rem;
+      background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
+      border-radius: 0.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 0.875rem;
+      color: #fff;
+    }
+
+    .shell-logo h1 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+    }
+
+    .shell-logo h1 span {
+      color: var(--color-text-muted);
+      font-weight: 400;
+      font-size: 0.75rem;
+      margin-left: 0.5rem;
+    }
+
+    .shell-nav {
+      display: flex;
+      gap: 0.25rem;
+    }
+
+    .shell-nav button {
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--color-text-muted);
+      padding: 0.5rem 1rem;
+      border-radius: 0.5rem;
+      font-size: 0.875rem;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .shell-nav button:hover {
+      color: var(--color-text);
+      background: rgba(255,255,255,0.05);
+    }
+
+    .shell-nav button.active {
+      color: var(--color-primary-light);
+      background: rgba(59,130,246,0.1);
+      border-color: rgba(59,130,246,0.2);
+    }
+
+    /* --- Main Layout --- */
+    .shell-main {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+
+    .page-title {
+      margin-bottom: 1.5rem;
+    }
+
+    .page-title h2 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      letter-spacing: -0.025em;
+    }
+
+    .page-title p {
+      color: var(--color-text-muted);
+      font-size: 0.875rem;
+      margin-top: 0.25rem;
+    }
+
+    /* --- App Grid --- */
+    .app-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+
+    @media (max-width: 1024px) {
+      .app-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .app-card {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .app-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--color-border);
+    }
+
+    .app-card-title {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .app-card-dot {
+      width: 0.5rem;
+      height: 0.5rem;
+      border-radius: 50%;
+      background: #22c55e;
+      flex-shrink: 0;
+    }
+
+    .app-card-dot.loading {
+      background: #eab308;
+      animation: pulse 1s ease infinite;
+    }
+
+    .app-card-dot.error {
+      background: #ef4444;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .app-card-title h3 {
+      font-size: 0.875rem;
+      font-weight: 600;
+    }
+
+    .app-card-badge {
+      font-size: 0.625rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.125rem 0.5rem;
+      border-radius: 1rem;
+      background: rgba(59,130,246,0.15);
+      color: var(--color-primary-light);
+    }
+
+    .app-card-body {
+      flex: 1;
+      min-height: 500px;
+    }
+
+    .app-card-body aiga-app {
+      display: block;
+      width: 100%;
+      height: 100%;
+      min-height: 500px;
+    }
+
+    /* --- Info Section --- */
+    .info-section {
+      margin-top: 2rem;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1rem;
+    }
+
+    @media (max-width: 768px) {
+      .info-section {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    .info-card {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+    }
+
+    .info-card-label {
+      font-size: 0.75rem;
+      color: var(--color-text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
+    }
+
+    .info-card-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+    }
+
+    .info-card-value.blue { color: var(--color-primary-light); }
+    .info-card-value.purple { color: #a78bfa; }
+    .info-card-value.green { color: #34d399; }
+    .info-card-value.amber { color: #fbbf24; }
+
+    .info-card-detail {
+      font-size: 0.75rem;
+      color: var(--color-text-muted);
+      margin-top: 0.25rem;
+    }
+  </style>
+</head>
+<body>
+  <!-- Shell Header -->
+  <header class="shell-header">
+    <div class="shell-logo">
+      <div class="shell-logo-icon">A</div>
+      <h1>Aiga<span>Micro-Frontend Demo</span></h1>
+    </div>
+    <nav class="shell-nav">
+      <button class="active">Dashboard</button>
+      <button>Settings</button>
+      <button>Docs</button>
+    </nav>
+  </header>
+
+  <!-- Main Content -->
+  <main class="shell-main">
+    <div class="page-title">
+      <h2>Embedded Applications</h2>
+      <p>Two cross-framework sub-applications running in adaptive sandboxes</p>
+    </div>
+
+    <!-- App Grid: React + Svelte side by side -->
+    <div class="app-grid">
+      <!-- React App -->
+      <div class="app-card" id="card-react">
+        <div class="app-card-header">
+          <div class="app-card-title">
+            <div class="app-card-dot loading" id="dot-react"></div>
+            <h3>Rosetta React</h3>
+          </div>
+          <div class="app-card-badge">sandbox: strict</div>
+        </div>
+        <div class="app-card-body">
+          <aiga-app
+            name="rosetta-react"
+            src="https://rosetta-react.vercel.app/"
+            sandbox="strict"
+          ></aiga-app>
+        </div>
+      </div>
+
+      <!-- Svelte App -->
+      <div class="app-card" id="card-svelte">
+        <div class="app-card-header">
+          <div class="app-card-title">
+            <div class="app-card-dot loading" id="dot-svelte"></div>
+            <h3>Rosetta Svelte</h3>
+          </div>
+          <div class="app-card-badge">sandbox: strict</div>
+        </div>
+        <div class="app-card-body">
+          <aiga-app
+            name="rosetta-svelte"
+            src="https://rosetta-svelte.vercel.app/"
+            sandbox="strict"
+          ></aiga-app>
+        </div>
+      </div>
+    </div>
+
+    <!-- Framework Info Cards -->
+    <div class="info-section">
+      <div class="info-card">
+        <div class="info-card-label">Sandbox Level</div>
+        <div class="info-card-value blue">strict</div>
+        <div class="info-card-detail">Pooled iframe + Shadow DOM</div>
+      </div>
+      <div class="info-card">
+        <div class="info-card-label">iframe Pool</div>
+        <div class="info-card-value purple" id="pool-stats">3 / 10</div>
+        <div class="info-card-detail">Pre-warmed / Max capacity</div>
+      </div>
+      <div class="info-card">
+        <div class="info-card-label">Frameworks</div>
+        <div class="info-card-value green">2</div>
+        <div class="info-card-detail">React + Svelte coexisting</div>
+      </div>
+      <div class="info-card">
+        <div class="info-card-label">Shell Overhead</div>
+        <div class="info-card-value amber">~0ms</div>
+        <div class="info-card-detail">Near-instant pool acquisition</div>
+      </div>
+    </div>
+  </main>
+
+  <script type="module">
+    import { initAiga } from '../../src/index.ts';
+
+    // Initialize Aiga framework.
+    const aiga = initAiga({
+      defaultSandbox: 'strict',
+      pool: { initialSize: 3, maxSize: 10 },
+    });
+
+    // Update status indicators when apps load.
+    document.querySelectorAll('aiga-app').forEach((app) => {
+      app.addEventListener('status-change', (e) => {
+        const { status } = e.detail;
+        const name = app.getAttribute('name');
+        const dotId = name === 'rosetta-react' ? 'dot-react' : 'dot-svelte';
+        const dot = document.getElementById(dotId);
+        if (!dot) return;
+
+        dot.classList.remove('loading', 'error');
+        if (status === 'loading' || status === 'mounting') {
+          dot.classList.add('loading');
+        } else if (status === 'error') {
+          dot.classList.add('error');
+        }
+        // 'mounted' → green (default, no extra class)
+      });
+    });
+
+    // Update pool stats periodically.
+    setInterval(() => {
+      const stats = aiga.pool.stats();
+      const el = document.getElementById('pool-stats');
+      if (el) {
+        el.textContent = `${stats.idle} / ${stats.total}`;
+      }
+    }, 2000);
+  </script>
+</body>
+</html>

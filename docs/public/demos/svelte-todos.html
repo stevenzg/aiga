@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Todo List — Svelte</title>
+<script>
+var __host = window.parent;
+var __rpcId = 0;
+window.rpcEmit = function(event, data) {
+  __host.postMessage({ __aiga_rpc: true, id: 'e_' + (++__rpcId), type: 'event', event: event, data: data }, '*');
+};
+window.rpcOn = function(event, cb) {
+  window.addEventListener('message', function(e) {
+    var d = e.data;
+    if (d && d.__aiga_rpc && d.type === 'event' && d.event === event) cb(d.data);
+  });
+};
+</script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:#fff;color:#111;padding:20px}
+.badge{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#f97316;background:#fff7ed;padding:3px 10px;border-radius:999px;margin-bottom:16px}
+.badge svg{width:14px;height:14px}
+h2{font-size:16px;font-weight:600;margin-bottom:12px}
+.stats{display:flex;gap:12px;margin-bottom:16px}
+.stat{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px;flex:1;text-align:center}
+.stat-value{font-size:24px;font-weight:700;font-variant-numeric:tabular-nums}
+.stat-value.blue{color:#3b82f6}
+.stat-value.green{color:#22c55e}
+.stat-value.amber{color:#f59e0b}
+.stat-label{font-size:11px;color:#94a3b8;margin-top:2px}
+.list{list-style:none}
+.list-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;margin-bottom:4px;transition:background .15s;font-size:14px}
+.list-item:hover{background:#f8fafc}
+.list-item.done{opacity:.5}
+.icon{font-size:16px;flex-shrink:0}
+.text{flex:1}
+.text.done{text-decoration:line-through;color:#94a3b8}
+.done-badge{font-size:10px;font-weight:600;color:#22c55e;background:#f0fdf4;padding:2px 8px;border-radius:999px}
+.empty{text-align:center;padding:32px;color:#94a3b8;font-size:13px}
+.status{display:flex;align-items:center;gap:6px;font-size:12px;color:#94a3b8;margin-top:12px;justify-content:center}
+.dot{width:6px;height:6px;border-radius:50%;background:#22c55e;animation:pulse 2s ease infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.progress{height:6px;background:#e2e8f0;border-radius:3px;margin-top:16px;overflow:hidden}
+.progress-bar{height:100%;background:linear-gradient(90deg,#22c55e,#4ade80);border-radius:3px;transition:width .3s ease}
+</style>
+</head>
+<body>
+<div class="badge"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg> Svelte</div>
+<h2>Synced Todo List</h2>
+<div id="stats" class="stats">
+  <div class="stat"><div class="stat-value blue" id="s-total">0</div><div class="stat-label">Total</div></div>
+  <div class="stat"><div class="stat-value green" id="s-done">0</div><div class="stat-label">Done</div></div>
+  <div class="stat"><div class="stat-value amber" id="s-pending">0</div><div class="stat-label">Pending</div></div>
+</div>
+<div class="progress"><div id="progress-bar" class="progress-bar" style="width:0%"></div></div>
+<ul id="list" class="list"></ul>
+<div id="empty" class="empty">Waiting for todos from React...</div>
+<div class="status"><span class="dot"></span> Receiving todos-update events</div>
+<script>
+var listEl = document.getElementById('list');
+var emptyEl = document.getElementById('empty');
+var sTotal = document.getElementById('s-total');
+var sDone = document.getElementById('s-done');
+var sPending = document.getElementById('s-pending');
+var progressBar = document.getElementById('progress-bar');
+
+rpcOn('todos-update', function(data) {
+  var todos = data.todos || [];
+  var total = todos.length;
+  var done = todos.filter(function(t) { return t.done; }).length;
+  var pending = total - done;
+
+  sTotal.textContent = total;
+  sDone.textContent = done;
+  sPending.textContent = pending;
+  progressBar.style.width = total > 0 ? (done / total * 100) + '%' : '0%';
+
+  if (total === 0) {
+    listEl.innerHTML = '';
+    emptyEl.style.display = '';
+    return;
+  }
+  emptyEl.style.display = 'none';
+  listEl.innerHTML = todos.map(function(t) {
+    return '<li class="list-item' + (t.done ? ' done' : '') + '">' +
+      '<span class="icon">' + (t.done ? '\u2705' : '\u23f3') + '</span>' +
+      '<span class="text' + (t.done ? ' done' : '') + '">' + escHtml(t.text) + '</span>' +
+      (t.done ? '<span class="done-badge">Done</span>' : '') +
+    '</li>';
+  }).join('');
+});
+
+function escHtml(s) {
+  var d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+</script>
+</body>
+</html>

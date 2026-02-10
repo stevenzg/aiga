@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Counter — React</title>
+<script>
+var __host = window.parent;
+var __rpcId = 0;
+window.rpcEmit = function(event, data) {
+  __host.postMessage({ __aiga_rpc: true, id: 'e_' + (++__rpcId), type: 'event', event: event, data: data }, '*');
+};
+window.rpcOn = function(event, cb) {
+  window.addEventListener('message', function(e) {
+    var d = e.data;
+    if (d && d.__aiga_rpc && d.type === 'event' && d.event === event) cb(d.data);
+  });
+};
+</script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:#fff;color:#111;padding:20px}
+.badge{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#0ea5e9;background:#e0f2fe;padding:3px 10px;border-radius:999px;margin-bottom:16px}
+.badge svg{width:14px;height:14px}
+h2{font-size:16px;font-weight:600;margin-bottom:16px}
+.counter{display:flex;align-items:center;gap:16px;margin-bottom:16px}
+.count{font-size:48px;font-weight:700;min-width:80px;text-align:center;font-variant-numeric:tabular-nums}
+.controls{display:flex;flex-direction:column;gap:8px}
+button{border:none;border-radius:8px;padding:8px 20px;font-size:14px;font-weight:600;cursor:pointer;transition:all .15s}
+.btn-primary{background:#3b82f6;color:#fff}
+.btn-primary:hover{background:#2563eb}
+.btn-danger{background:#ef4444;color:#fff}
+.btn-danger:hover{background:#dc2626}
+.btn-outline{background:#fff;color:#64748b;border:1px solid #e2e8f0}
+.btn-outline:hover{background:#f8fafc;border-color:#cbd5e1}
+.row{display:flex;gap:8px}
+.hint{font-size:12px;color:#94a3b8;margin-top:8px}
+</style>
+</head>
+<body>
+<div class="badge"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg> React</div>
+<h2>Counter Controls</h2>
+<div id="root"></div>
+<script>
+var e = React.createElement;
+function App() {
+  var ref = React.useState(0);
+  var count = ref[0], setCount = ref[1];
+  React.useEffect(function() { rpcEmit('count-change', { count: count }); }, [count]);
+  return e('div', null,
+    e('div', { className: 'counter' },
+      e('span', { className: 'count' }, count),
+      e('div', { className: 'controls' },
+        e('div', { className: 'row' },
+          e('button', { className: 'btn-primary', onClick: function() { setCount(function(c) { return c + 1; }); } }, '+1'),
+          e('button', { className: 'btn-primary', onClick: function() { setCount(function(c) { return c + 5; }); } }, '+5')
+        ),
+        e('div', { className: 'row' },
+          e('button', { className: 'btn-outline', onClick: function() { setCount(function(c) { return c - 1; }); } }, '-1'),
+          e('button', { className: 'btn-danger', onClick: function() { setCount(0); } }, 'Reset')
+        )
+      )
+    ),
+    e('p', { className: 'hint' }, 'Counter state is synced to the Svelte display via Aiga RPC')
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(e(App));
+</script>
+</body>
+</html>

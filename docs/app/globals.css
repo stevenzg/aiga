@@ -1,0 +1,8 @@
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+
+/* Full-width docs layout — no gap between sidebar and viewport edge */
+:root {
+  --fd-layout-width: 100%;
+}

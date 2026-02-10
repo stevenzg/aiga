@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Preview — Svelte</title>
+<script>
+var __host = window.parent;
+var __rpcId = 0;
+window.rpcEmit = function(event, data) {
+  __host.postMessage({ __aiga_rpc: true, id: 'e_' + (++__rpcId), type: 'event', event: event, data: data }, '*');
+};
+window.rpcOn = function(event, cb) {
+  window.addEventListener('message', function(e) {
+    var d = e.data;
+    if (d && d.__aiga_rpc && d.type === 'event' && d.event === event) cb(d.data);
+  });
+};
+</script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:#fff;color:#111;padding:20px}
+.badge{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#f97316;background:#fff7ed;padding:3px 10px;border-radius:999px;margin-bottom:16px}
+.badge svg{width:14px;height:14px}
+h2{font-size:16px;font-weight:600;margin-bottom:12px}
+.preview{min-height:200px;border:1px solid #e2e8f0;border-radius:8px;padding:12px;font-size:14px;line-height:1.6;white-space:pre-wrap;word-break:break-word;background:#f8fafc;color:#334155;transition:all .2s}
+.preview.empty{color:#94a3b8;font-style:italic}
+.status{display:flex;align-items:center;gap:6px;font-size:12px;color:#94a3b8;margin-top:8px}
+.dot{width:6px;height:6px;border-radius:50%;background:#22c55e;animation:pulse 2s ease infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+</style>
+</head>
+<body>
+<div class="badge"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg> Svelte</div>
+<h2>Live Preview</h2>
+<div id="preview" class="preview empty">Waiting for input...</div>
+<div class="status"><span class="dot"></span> Listening for RPC events from host</div>
+<script>
+var preview = document.getElementById('preview');
+rpcOn('content-update', function(data) {
+  if (data && data.text) {
+    preview.textContent = data.text;
+    preview.classList.remove('empty');
+  } else {
+    preview.textContent = 'Waiting for input...';
+    preview.classList.add('empty');
+  }
+});
+</script>
+</body>
+</html>

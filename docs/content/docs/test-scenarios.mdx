@@ -1,0 +1,191 @@
+---
+title: Test Scenarios
+description: Comprehensive test plan covering 91 scenarios across all subsystems.
+---
+
+Aiga's test plan covers **91 scenarios** across 12 categories. Below is the complete test matrix with current coverage status.
+
+## Test Categories
+
+### JS Isolation (JS-01 ~ JS-10)
+
+| ID | Scenario | Tiers | Status |
+|---|---|---|---|
+| JS-01 | Sub-app `window.x = 1` does not pollute host | light, strict | Covered |
+| JS-02 | Host global changes are invisible to sub-app | strict, remote | Covered |
+| JS-03 | Two sub-apps writing same global don't conflict | light+light, strict+strict | Covered |
+| JS-04 | `eval()` runs in sub-app scope, not host | light | Covered |
+| JS-05 | `new Function()` runs in sub-app scope | light | Covered |
+| JS-06 | `localStorage.setItem` is per-app namespaced | strict | Covered |
+| JS-07 | `sessionStorage` is per-app namespaced | strict | Covered |
+| JS-08 | `window.addEventListener` on sub-app doesn't leak | light, strict | Covered |
+| JS-09 | Prototype pollution (`Object.prototype.x`) blocked | strict | Covered |
+| JS-10 | All timers cleaned up on destroy | light | Covered |
+
+### CSS Isolation (CSS-01 ~ CSS-07)
+
+| ID | Scenario | Tiers | Status |
+|---|---|---|---|
+| CSS-01 | Sub-app global `body { color: red }` doesn't leak | light, strict | Covered |
+| CSS-02 | Host `!important` rule doesn't bleed in | light, strict | Covered |
+| CSS-03 | CSS custom properties from host pass through | light, strict | Covered |
+| CSS-04 | Dynamic style injection stays scoped | light | Covered |
+| CSS-05 | Two sub-apps with conflicting classes don't clash | light+light | Covered |
+| CSS-06 | Host theme change reactively syncs to sub-apps | light, strict | Covered |
+| CSS-07 | `@font-face` loaded in sub-app usable | light, strict | Covered |
+
+### DOM Isolation (DOM-01 ~ DOM-06)
+
+| ID | Scenario | Tiers | Status |
+|---|---|---|---|
+| DOM-01 | `document.querySelector` scoped to sub-app | light | Covered |
+| DOM-02 | `document.getElementById` scoped | light | Covered |
+| DOM-03 | `document.title` write scoped per sub-app | light | Covered |
+| DOM-04 | `history.pushState` from sub-app handled | strict | Covered |
+| DOM-05 | Sub-app DOM operations don't affect host | light | Covered |
+| DOM-06 | `MutationObserver` on sub-app content works | light | Covered |
+
+### Security (SEC-01 ~ SEC-05)
+
+| ID | Scenario | Tiers | Status |
+|---|---|---|---|
+| SEC-01 | `window.parent` / `window.top` returns self | strict | Covered |
+| SEC-02 | `document.cookie` isolated per sub-app | light, strict | Covered |
+| SEC-03 | XSS via malicious sub-app HTML blocked | all | Covered |
+| SEC-04 | `postMessage` origin validated | strict, remote | Covered |
+| SEC-05 | `allow-same-origin` mitigated by overrides | strict | Covered |
+
+### Overlay (OV-01 ~ OV-13)
+
+| ID | Scenario | Tiers | Status |
+|---|---|---|---|
+| OV-01 | antd Modal renders correctly in viewport | light, strict | Covered |
+| OV-02 | Element Plus Dialog renders correctly | light, strict | Covered |
+| OV-03 | Radix Popover positions correctly | light | Covered |
+| OV-04 | Nested overlay (dialog opens confirm) | strict | Covered |
+| OV-05 | Overlay dismiss removes from layer | light, strict | Covered |
+| OV-06 | Multiple overlays stack correctly | light | Covered |
+| OV-07 | Overlay scroll doesn't scroll host | strict | Covered |
+| OV-08 | Overlay animation plays correctly | strict | Covered |
+| OV-09 | Overlay click events work | strict | Covered |
+| OV-10 | Tooltip positioning after scroll | light | Known limitation |
+| OV-11 | Drawer slide animation | strict | Covered |
+| OV-12 | Overlay cleanup on sub-app destroy | light, strict | Covered |
+| OV-13 | False positive: header not detected | light, strict | Covered |
+
+### RPC (RPC-01 ~ RPC-13)
+
+| ID | Scenario | Tiers | Status |
+|---|---|---|---|
+| RPC-01 | `call()` returns Promise with result | strict, remote | Covered |
+| RPC-02 | `call()` rejects on timeout | strict, remote | Covered |
+| RPC-03 | `expose()` registers handler | strict, remote | Covered |
+| RPC-04 | `emit()` fires event on remote | strict, remote | Covered |
+| RPC-05 | `on()` receives events | strict, remote | Covered |
+| RPC-06 | Multiple concurrent calls resolve correctly | strict | Covered |
+| RPC-07 | Error in handler rejects caller | strict | Covered |
+| RPC-08 | `dispose()` rejects pending calls | strict | Covered |
+| RPC-09 | Origin mismatch silently drops message | strict, remote | Covered |
+| RPC-10 | Large payload serializes correctly | strict | Covered |
+| RPC-11 | `setTarget()` updates after navigation | strict | Covered |
+| RPC-12 | Message from wrong source ignored | strict | Covered |
+| RPC-13 | Props update sent via RPC on change | strict | Covered |
+
+### Navigation (NAV-01 ~ NAV-09)
+
+| ID | Scenario | Tiers | Status |
+|---|---|---|---|
+| NAV-01 | `router.push()` switches sub-app | all | Covered |
+| NAV-02 | Sub-app internal routing preserved | strict | Covered |
+| NAV-03 | Browser back navigates correctly | all | Covered |
+| NAV-04 | Browser forward navigates correctly | all | Covered |
+| NAV-05 | Direct URL entry resolves route | all | Covered |
+| NAV-06 | Nested routes match correctly | all | Covered |
+| NAV-07 | Hash mode works | all | Covered |
+| NAV-08 | Route guard blocks navigation | all | Covered |
+| NAV-09 | 404 fallback renders | all | Covered |
+
+### Error Handling (ERR-01 ~ ERR-05)
+
+| ID | Scenario | Tiers | Status |
+|---|---|---|---|
+| ERR-01 | Uncaught error in sub-app caught | light, none | Covered |
+| ERR-02 | Sub-app fetch 404 shows error UI | all | Covered |
+| ERR-03 | Load timeout triggers error state | all | Covered |
+| ERR-04 | CORS error detected with helpful message | light, none | Covered |
+| ERR-05 | RPC timeout rejects call | strict, remote | Covered |
+
+### iframe Pool (POOL-01 ~ POOL-07)
+
+| ID | Scenario | Tiers | Status |
+|---|---|---|---|
+| POOL-01 | Pool pre-warms on init | strict | Covered |
+| POOL-02 | Acquire returns iframe in ~0ms | strict | Covered |
+| POOL-03 | Release returns iframe to pool | strict | Covered |
+| POOL-04 | LRU eviction at capacity | strict | Covered |
+| POOL-05 | Pool replenishes on idle | strict | Covered |
+| POOL-06 | Over-capacity force-create + shrink | strict | Covered |
+| POOL-07 | dispose() cleans all iframes | strict | Covered |
+
+### Keep-Alive (KA-01 ~ KA-06)
+
+| ID | Scenario | Tiers | Status |
+|---|---|---|---|
+| KA-01 | Unmounted keep-alive app preserves iframe | strict | Covered |
+| KA-02 | Re-mount restores without reload | strict | Covered |
+| KA-03 | LRU eviction on max alive exceeded | strict | Covered |
+| KA-04 | Props re-sent on restore | strict | Covered |
+| KA-05 | CSS variables re-synced on restore | strict | Covered |
+| KA-06 | RPC channel re-established on restore | strict | Covered |
+
+### Service Worker (SW-01 ~ SW-05)
+
+| ID | Scenario | Tiers | Status |
+|---|---|---|---|
+| SW-01 | Registration succeeds | all | Covered |
+| SW-02 | Cache-first strategy works | all | Covered |
+| SW-03 | Network-first fallback on failure | all | Covered |
+| SW-04 | SWR returns stale then revalidates | all | Covered |
+| SW-05 | Cross-iframe resources cached | strict | Covered |
+
+### Performance (PERF-01 ~ PERF-05)
+
+| ID | Scenario | Tiers | Status |
+|---|---|---|---|
+| PERF-01 | iframe acquire < 5ms from pool | strict | Covered |
+| PERF-02 | Light sandbox mount < 100ms | light | Covered |
+| PERF-03 | Strict sandbox mount < 200ms | strict | Covered |
+| PERF-04 | Keep-alive restore < 50ms | strict | Covered |
+| PERF-05 | 5 concurrent sub-apps stable | mixed | Covered |
+
+## Running Tests
+
+```bash
+# Unit tests (fast, no browser)
+npm test
+
+# Integration tests (real browser via Playwright)
+npm run test:e2e
+
+# Specific category
+npm test -- --grep "JS-0"
+npm test -- --grep "SEC-"
+```
+
+## Coverage Summary
+
+| Category | Total | Covered | Known Limitations |
+|---|---|---|---|
+| JS Isolation | 10 | 10 | — |
+| CSS Isolation | 7 | 7 | — |
+| DOM Isolation | 6 | 6 | — |
+| Security | 5 | 5 | — |
+| Overlay | 13 | 12 | OV-10 (tooltip repositioning) |
+| RPC | 13 | 13 | — |
+| Navigation | 9 | 9 | — |
+| Error Handling | 5 | 5 | — |
+| iframe Pool | 7 | 7 | — |
+| Keep-Alive | 6 | 6 | — |
+| Service Worker | 5 | 5 | — |
+| Performance | 5 | 5 | — |
+| **Total** | **91** | **90** | **1** |

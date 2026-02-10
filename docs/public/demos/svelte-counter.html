@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Counter Display — Svelte</title>
+<script>
+var __host = window.parent;
+var __rpcId = 0;
+window.rpcEmit = function(event, data) {
+  __host.postMessage({ __aiga_rpc: true, id: 'e_' + (++__rpcId), type: 'event', event: event, data: data }, '*');
+};
+window.rpcOn = function(event, cb) {
+  window.addEventListener('message', function(e) {
+    var d = e.data;
+    if (d && d.__aiga_rpc && d.type === 'event' && d.event === event) cb(d.data);
+  });
+};
+</script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:#fff;color:#111;padding:20px}
+.badge{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#f97316;background:#fff7ed;padding:3px 10px;border-radius:999px;margin-bottom:16px}
+.badge svg{width:14px;height:14px}
+h2{font-size:16px;font-weight:600;margin-bottom:16px}
+.display{text-align:center;padding:24px}
+.big-count{font-size:72px;font-weight:800;transition:all .3s ease;font-variant-numeric:tabular-nums;line-height:1}
+.big-count.positive{color:#22c55e}
+.big-count.negative{color:#ef4444}
+.big-count.zero{color:#94a3b8}
+.bar{height:8px;border-radius:4px;background:#e2e8f0;margin:24px 0 16px;overflow:hidden;position:relative}
+.bar-fill{height:100%;border-radius:4px;transition:all .3s ease;position:absolute;left:50%}
+.bar-fill.positive{background:linear-gradient(90deg,#22c55e,#4ade80);transform-origin:left}
+.bar-fill.negative{background:linear-gradient(270deg,#ef4444,#f87171);transform-origin:right}
+.label{font-size:13px;color:#64748b}
+.status{display:flex;align-items:center;gap:6px;font-size:12px;color:#94a3b8;margin-top:16px;justify-content:center}
+.dot{width:6px;height:6px;border-radius:50%;background:#22c55e;animation:pulse 2s ease infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+</style>
+</head>
+<body>
+<div class="badge"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg> Svelte</div>
+<h2>Synced Counter</h2>
+<div class="display">
+  <div id="count" class="big-count zero">0</div>
+  <div class="bar"><div id="bar-fill" class="bar-fill positive" style="width:0"></div></div>
+  <div class="label">Value synced from React counter via RPC</div>
+  <div class="status"><span class="dot"></span> Receiving count-update events</div>
+</div>
+<script>
+var countEl = document.getElementById('count');
+var barFill = document.getElementById('bar-fill');
+rpcOn('count-update', function(data) {
+  var n = data.count || 0;
+  countEl.textContent = n;
+  countEl.className = 'big-count ' + (n > 0 ? 'positive' : n < 0 ? 'negative' : 'zero');
+  var pct = Math.min(Math.abs(n) * 2, 50);
+  barFill.style.width = pct + '%';
+  if (n >= 0) {
+    barFill.className = 'bar-fill positive';
+    barFill.style.left = '50%';
+    barFill.style.transform = '';
+  } else {
+    barFill.className = 'bar-fill negative';
+    barFill.style.left = (50 - pct) + '%';
+    barFill.style.transform = '';
+  }
+});
+</script>
+</body>
+</html>

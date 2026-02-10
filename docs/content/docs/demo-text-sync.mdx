@@ -1,0 +1,29 @@
+---
+title: Text Sync
+description: React editor sends text to Svelte preview in real-time via RPC.
+---
+
+Type in the React editor on the left — the text appears in the Svelte preview on the right in real-time. The host page relays RPC events between the two sandboxed apps:
+
+```
+React Editor ──content-change──▷ Host ──content-update──▷ Svelte Preview
+```
+
+<TextSyncDemo />
+
+## How It Works
+
+1. Both apps run in `sandbox="strict"` iframes from the pool
+2. The React editor calls `rpcEmit('content-change', text)` on every keystroke
+3. The host listens on the left app's RPC channel and forwards to the right app
+4. The Svelte preview listens for `content-update` events and renders the text
+
+```ts
+// Host relay
+const leftRpc = reactEditor.rpcChannel;
+const rightRpc = sveltePreview.rpcChannel;
+
+leftRpc.on('content-change', (data) => {
+  rightRpc.emit('content-update', data);
+});
+```
