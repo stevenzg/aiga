@@ -59,6 +59,8 @@ export class RemoteSandbox implements SandboxAdapter {
       this.iframes.set(app.id, iframe);
     }
 
+    // Expose iframe reference on AppInstance for RPC setup.
+    app.iframe = iframe;
     container.appendChild(iframe);
 
     // Only navigate on fresh mount (not keepAlive restore).

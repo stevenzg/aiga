@@ -112,6 +112,10 @@ export class StrictSandbox implements SandboxAdapter {
       this.iframes.set(app.id, iframe);
     }
 
+    // Expose iframe reference on the AppInstance so mf-app.ts can find it
+    // for RPC setup (querySelector can't pierce this nested Shadow DOM).
+    app.iframe = iframe;
+
     // Wrap iframe in a container inside Shadow DOM.
     const wrapper = document.createElement('div');
     wrapper.className = 'aiga-iframe-wrapper';

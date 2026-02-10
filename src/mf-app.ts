@@ -282,17 +282,18 @@ export class MfAppElement extends HTMLElement {
       this.inKeepAlive = false;
       this.setStatus('mounted');
 
-      // Send initial props to the sub-app (RPC-13).
-      if (this.rpc && Object.keys(this._props).length > 0) {
-        this.rpc.emit('props-update', this._props as Record<string, never>);
+      // Send initial props and signal RPC readiness (only for iframe-based sandboxes).
+      if (this.rpc) {
+        if (Object.keys(this._props).length > 0) {
+          this.rpc.emit('props-update', this._props as Record<string, never>);
+        }
+        this.dispatchEvent(
+          new CustomEvent('rpc-ready', {
+            detail: { appName: this.appName },
+            bubbles: true,
+          }),
+        );
       }
-
-      this.dispatchEvent(
-        new CustomEvent('rpc-ready', {
-          detail: { appName: this.appName },
-          bubbles: true,
-        }),
-      );
     } catch (err) {
       this.setStatus('error');
       this.showError(err instanceof Error ? err : new Error(String(err)));
@@ -386,7 +387,12 @@ export class MfAppElement extends HTMLElement {
   }
 
   private setupRpc(timeout?: number): void {
-    const iframe = this.container?.querySelector('iframe') ??
+    // Look for iframe in multiple locations:
+    // 1. app.iframe — set by sandbox adapters (strict stores iframe behind nested Shadow DOM)
+    // 2. container querySelector — works for remote sandbox (iframe is a direct child)
+    // 3. shadow querySelector — fallback
+    const iframe = this.app.iframe ??
+      this.container?.querySelector('iframe') ??
       this.shadow.querySelector('iframe');
     if (iframe?.contentWindow) {
       // Use origin-scoped RPC channel with configurable timeout.

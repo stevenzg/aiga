@@ -286,7 +286,12 @@ export class Router {
 
   private async onUrlChange(): Promise<void> {
     const path = this.getCurrentPath();
-    const matched = this.matchRoute(path, this.routes, []);
+
+    // Parse query from the path itself (important for hash mode where
+    // query params are inside the hash fragment, not in window.location.search).
+    const qIdx = path.indexOf('?');
+    const query = qIdx >= 0 ? this.parseQuery(path.slice(qIdx)) : {};
+    const matched = this.matchRoute(path, this.routes, [], query);
 
     if (!matched) {
       this.handleNotFound(path, true);
