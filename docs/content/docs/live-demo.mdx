@@ -1,31 +1,66 @@
 ---
 title: Live Demo
-description: See Aiga in action — real cross-framework sub-apps running in adaptive sandboxes.
+description: See Aiga in action — React and Svelte sub-apps communicating via RPC in real-time.
 ---
 
-This is a live demo running the actual Aiga framework. Two independently deployed applications — one built with **React**, the other with **Svelte** — are embedded side by side using `<aiga-app>` with `sandbox="strict"`.
+Three interactive demos showing **cross-framework communication** via Aiga's RPC channel. Each scenario pairs a **React** app (left) with a **Svelte** app (right), running in separate `sandbox="strict"` iframes with full JS/CSS isolation.
 
-Each sub-app runs in a **pooled iframe** with full JS/CSS isolation, storage namespacing, and automatic resize handling. The iframes are acquired from Aiga's pre-warmed pool for near-instant startup.
+The host page relays RPC events between apps:
+
+```
+React App  ──rpc.emit()──▷  Host  ──rpc.emit()──▷  Svelte App
+```
 
 <LiveDemo />
 
-## What's Happening
+## How the RPC Relay Works
 
-1. `initAiga()` creates a singleton instance, registers `<aiga-app>` custom elements, and pre-warms the iframe pool
-2. Each `<aiga-app>` element acquires an iframe from the pool (~0ms vs 50-100ms cold start)
-3. The sub-app URL is loaded inside the pooled iframe with the bridge script injected
-4. Storage (localStorage, sessionStorage, cookies) is automatically namespaced per app
-5. CSS variables from the host are synced into each iframe via postMessage
-6. ResizeObserver tracks content height and auto-resizes the iframe
+1. `initAiga()` registers `<aiga-app>` and pre-warms the iframe pool
+2. Each `<aiga-app>` acquires a pooled iframe and loads the sub-app URL
+3. The bridge script is injected (same-origin), overriding `window.parent` and namespacing storage
+4. Sub-apps save `window.parent` before bridge injection, then use `postMessage` with the `__aiga_rpc` protocol
+5. After `rpc-ready` fires, the host listens for events from the left app and forwards them to the right app
+
+```ts
+// Host relay logic
+const leftRpc = leftApp.rpcChannel;
+const rightRpc = rightApp.rpcChannel;
+
+leftRpc.on('content-change', (data) => {
+  rightRpc.emit('content-update', data);
+});
+```
+
+## Sub-app RPC Helper
+
+Each sub-app includes a small inline script that runs before the bridge:
+
+```html
+<script>
+  // Capture real parent BEFORE bridge overrides window.parent
+  var host = window.parent;
+
+  window.rpcEmit = function(event, data) {
+    host.postMessage({
+      __aiga_rpc: true, type: 'event',
+      id: 'e_' + (++counter), event: event, data: data
+    }, '*');
+  };
+
+  window.rpcOn = function(event, cb) {
+    window.addEventListener('message', function(e) {
+      if (e.data?.__aiga_rpc && e.data.event === event) cb(e.data.data);
+    });
+  };
+</script>
+```
 
 ## Try It Locally
 
-To run the full example with Vite dev server:
-
 ```bash
-# From the repository root
-cd examples/basic
-npm run dev
-```
+# Run the docs site (builds library automatically)
+cd docs && npm run dev
 
-This starts a Vite dev server at `http://localhost:5173` with hot-reload and source maps for the Aiga library.
+# Or run the standalone example
+cd examples/basic && npm run dev
+```

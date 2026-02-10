@@ -2,28 +2,57 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
+
 type AppStatus = 'idle' | 'loading' | 'mounting' | 'mounted' | 'error';
 
-interface AppState {
+interface AppDef {
   name: string;
   label: string;
   src: string;
   sandbox: string;
-  status: AppStatus;
 }
 
-const apps: Omit<AppState, 'status'>[] = [
+interface Scenario {
+  id: string;
+  title: string;
+  desc: string;
+  left: AppDef;
+  right: AppDef;
+  /** RPC event emitted by left app → renamed event forwarded to right app */
+  relay: { from: string; to: string };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Demo scenarios                                                     */
+/* ------------------------------------------------------------------ */
+
+const scenarios: Scenario[] = [
   {
-    name: 'rosetta-react',
-    label: 'Rosetta React',
-    src: 'https://rosetta-react.vercel.app/',
-    sandbox: 'strict',
+    id: 'editor',
+    title: 'Cross-app Text Sync',
+    desc: 'Type in the React editor — text appears in the Svelte preview in real-time via RPC.',
+    left:  { name: 'react-editor',   label: 'React Editor',   src: '/demos/react-editor.html',   sandbox: 'strict' },
+    right: { name: 'svelte-preview', label: 'Svelte Preview', src: '/demos/svelte-preview.html', sandbox: 'strict' },
+    relay: { from: 'content-change', to: 'content-update' },
   },
   {
-    name: 'rosetta-svelte',
-    label: 'Rosetta Svelte',
-    src: 'https://rosetta-svelte.vercel.app/',
-    sandbox: 'strict',
+    id: 'counter',
+    title: 'Shared Counter',
+    desc: 'Click buttons in the React app — the Svelte display syncs the count with a visual bar.',
+    left:  { name: 'react-counter',  label: 'React Counter',  src: '/demos/react-counter.html',  sandbox: 'strict' },
+    right: { name: 'svelte-counter', label: 'Svelte Display', src: '/demos/svelte-counter.html', sandbox: 'strict' },
+    relay: { from: 'count-change', to: 'count-update' },
+  },
+  {
+    id: 'todos',
+    title: 'Shared Todo List',
+    desc: 'Add, check, and remove todos in React — Svelte renders a synced list with progress stats.',
+    left:  { name: 'react-todos',  label: 'React Todos',    src: '/demos/react-todos.html',  sandbox: 'strict' },
+    right: { name: 'svelte-todos', label: 'Svelte List',    src: '/demos/svelte-todos.html', sandbox: 'strict' },
+    relay: { from: 'todos-change', to: 'todos-update' },
   },
 ];
 
@@ -35,47 +64,25 @@ const statusColor: Record<AppStatus, string> = {
   error: 'bg-red-400',
 };
 
+/* ------------------------------------------------------------------ */
+/*  LiveDemo — main component                                         */
+/* ------------------------------------------------------------------ */
+
 export function LiveDemo() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [statuses, setStatuses] = useState<Record<string, AppStatus>>({});
-  const [poolStats, setPoolStats] = useState('– / –');
+  const [activeTab, setActiveTab] = useState(scenarios[0].id);
   const initialized = useRef(false);
-  const aigaRef = useRef<{ pool: { stats: () => { idle: number; total: number } } } | null>(null);
 
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
-
     import('../../dist/aiga.js')
       .then(({ initAiga }) => {
-        const aiga = initAiga({
-          defaultSandbox: 'strict',
-          pool: { initialSize: 3, maxSize: 10 },
-        });
-        aigaRef.current = aiga;
+        initAiga({ defaultSandbox: 'strict', pool: { initialSize: 3, maxSize: 10 } });
         setReady(true);
       })
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : String(err));
-      });
-  }, []);
-
-  // Poll pool stats.
-  useEffect(() => {
-    if (!ready) return;
-    const id = setInterval(() => {
-      if (aigaRef.current) {
-        const s = aigaRef.current.pool.stats();
-        setPoolStats(`${s.idle} / ${s.total}`);
-      }
-    }, 2000);
-    return () => clearInterval(id);
-  }, [ready]);
-
-  // Status change listener.
-  const handleStatusChange = useCallback((appName: string, status: AppStatus) => {
-    setStatuses((prev) => ({ ...prev, [appName]: status }));
+      .catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, []);
 
   if (error) {
@@ -95,86 +102,123 @@ export function LiveDemo() {
     );
   }
 
+  const scenario = scenarios.find((s) => s.id === activeTab)!;
+
   return (
-    <div className="space-y-6">
-      {/* App Grid */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        {apps.map((app) => (
-          <AppCard
-            key={app.name}
-            app={app}
-            status={statuses[app.name] ?? 'idle'}
-            onStatusChange={handleStatusChange}
-          />
+    <div className="space-y-4">
+      {/* Tabs */}
+      <div className="flex flex-wrap gap-2">
+        {scenarios.map((s) => (
+          <button
+            key={s.id}
+            onClick={() => setActiveTab(s.id)}
+            className={`rounded-lg px-4 py-2 text-sm font-medium transition cursor-pointer ${
+              activeTab === s.id
+                ? 'bg-primary text-primary-foreground'
+                : 'border hover:bg-accent'
+            }`}
+          >
+            {s.title}
+          </button>
         ))}
       </div>
 
-      {/* Info Cards */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <InfoCard label="Sandbox Level" value="strict" detail="Pooled iframe + Shadow DOM" color="text-blue-500" />
-        <InfoCard label="iframe Pool" value={poolStats} detail="Idle / Total capacity" color="text-violet-500" />
-        <InfoCard label="Frameworks" value="2" detail="React + Svelte coexisting" color="text-emerald-500" />
-        <InfoCard label="Pool Acquisition" value="~0ms" detail="Pre-warmed, near-instant" color="text-amber-500" />
-      </div>
+      <p className="text-sm text-muted-foreground">{scenario.desc}</p>
 
-      {/* Source Code */}
-      <details className="rounded-xl border bg-card">
-        <summary className="cursor-pointer px-5 py-3 text-sm font-medium hover:bg-accent/50">
-          View Source Code
-        </summary>
-        <pre className="overflow-x-auto border-t px-5 py-4 font-mono text-xs leading-relaxed">
-{`import { initAiga } from 'aiga';
-
-// Initialize Aiga framework
-const aiga = initAiga({
-  defaultSandbox: 'strict',
-  pool: { initialSize: 3, maxSize: 10 },
-});
-
-// HTML — that's all you need:
-<aiga-app
-  name="rosetta-react"
-  src="https://rosetta-react.vercel.app/"
-  sandbox="strict"
-/>
-<aiga-app
-  name="rosetta-svelte"
-  src="https://rosetta-svelte.vercel.app/"
-  sandbox="strict"
-/>`}
-        </pre>
-      </details>
+      {/* Render only the active scenario */}
+      <ScenarioPair key={scenario.id} scenario={scenario} />
     </div>
   );
 }
 
-/* ---------- Sub-components ---------- */
+/* ------------------------------------------------------------------ */
+/*  ScenarioPair — two apps side by side with RPC relay                */
+/* ------------------------------------------------------------------ */
+
+function ScenarioPair({ scenario }: { scenario: Scenario }) {
+  const leftRef = useRef<HTMLDivElement>(null);
+  const rightRef = useRef<HTMLDivElement>(null);
+  const [statuses, setStatuses] = useState<Record<string, AppStatus>>({});
+
+  const onStatus = useCallback((name: string, status: AppStatus) => {
+    setStatuses((prev) => ({ ...prev, [name]: status }));
+  }, []);
+
+  // Set up RPC relay: left app emits event → host forwards to right app.
+  useEffect(() => {
+    const leftEl = leftRef.current?.querySelector('aiga-app') as HTMLElement | null;
+    const rightEl = rightRef.current?.querySelector('aiga-app') as HTMLElement | null;
+    if (!leftEl || !rightEl) return;
+
+    let leftRpc: { on: (e: string, h: (d: unknown) => void) => () => void } | null = null;
+    let rightRpc: { emit: (e: string, d: unknown) => void } | null = null;
+    let unsub: (() => void) | null = null;
+
+    function tryRelay() {
+      leftRpc = (leftEl as unknown as { rpcChannel: typeof leftRpc }).rpcChannel;
+      rightRpc = (rightEl as unknown as { rpcChannel: typeof rightRpc }).rpcChannel;
+      if (leftRpc && rightRpc) {
+        unsub = leftRpc.on(scenario.relay.from, (data) => {
+          rightRpc!.emit(scenario.relay.to, data as Record<string, never>);
+        });
+      }
+    }
+
+    const onReady = () => tryRelay();
+    leftEl.addEventListener('rpc-ready', onReady);
+    rightEl.addEventListener('rpc-ready', onReady);
+    // Try immediately in case already ready.
+    tryRelay();
+
+    return () => {
+      leftEl.removeEventListener('rpc-ready', onReady);
+      rightEl.removeEventListener('rpc-ready', onReady);
+      unsub?.();
+    };
+  }, [scenario]);
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <AppCard
+        containerRef={leftRef}
+        app={scenario.left}
+        status={statuses[scenario.left.name] ?? 'idle'}
+        onStatusChange={onStatus}
+      />
+      <AppCard
+        containerRef={rightRef}
+        app={scenario.right}
+        status={statuses[scenario.right.name] ?? 'idle'}
+        onStatusChange={onStatus}
+      />
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  AppCard                                                            */
+/* ------------------------------------------------------------------ */
 
 function AppCard({
+  containerRef,
   app,
   status,
   onStatusChange,
 }: {
-  app: Omit<AppState, 'status'>;
+  containerRef: React.RefObject<HTMLDivElement | null>;
+  app: AppDef;
   status: AppStatus;
   onStatusChange: (name: string, status: AppStatus) => void;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
-    const container = ref.current;
-    if (!container) return;
-
-    const aigaApp = container.querySelector('aiga-app');
-    if (!aigaApp) return;
-
+    const el = containerRef.current?.querySelector('aiga-app');
+    if (!el) return;
     const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      onStatusChange(app.name, detail.status);
+      onStatusChange(app.name, (e as CustomEvent).detail.status);
     };
-    aigaApp.addEventListener('status-change', handler);
-    return () => aigaApp.removeEventListener('status-change', handler);
-  }, [app.name, onStatusChange]);
+    el.addEventListener('status-change', handler);
+    return () => el.removeEventListener('status-change', handler);
+  }, [app.name, onStatusChange, containerRef]);
 
   return (
     <div className="overflow-hidden rounded-xl border bg-card">
@@ -187,7 +231,7 @@ function AppCard({
           {app.sandbox}
         </span>
       </div>
-      <div ref={ref} style={{ height: '70vh', minHeight: '400px', maxHeight: '800px' }}>
+      <div ref={containerRef} style={{ height: '420px' }}>
         {/* @ts-expect-error -- aiga-app is a custom element */}
         <aiga-app
           name={app.name}
@@ -196,28 +240,6 @@ function AppCard({
           style={{ display: 'block', width: '100%', height: '100%' }}
         />
       </div>
-    </div>
-  );
-}
-
-function InfoCard({
-  label,
-  value,
-  detail,
-  color,
-}: {
-  label: string;
-  value: string;
-  detail: string;
-  color: string;
-}) {
-  return (
-    <div className="rounded-xl border bg-card p-4">
-      <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-        {label}
-      </div>
-      <div className={`mt-1 text-2xl font-bold tracking-tight ${color}`}>{value}</div>
-      <div className="mt-0.5 text-xs text-muted-foreground">{detail}</div>
     </div>
   );
 }
