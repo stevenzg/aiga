@@ -129,6 +129,39 @@ export function getBridgeScript(parentOrigin?: string, appId?: string): string {
     });
   } catch(e) {}
 
+  // Namespace document.cookie (SEC-02).
+  try {
+    var _cookieDesc = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie') ||
+                      Object.getOwnPropertyDescriptor(HTMLDocument.prototype, 'cookie');
+    if (_cookieDesc) {
+      var _origGet = _cookieDesc.get;
+      var _origSet = _cookieDesc.set;
+      Object.defineProperty(document, 'cookie', {
+        get: function() {
+          var all = _origGet.call(document);
+          // Filter to only return cookies prefixed with our namespace.
+          return all.split('; ').filter(function(c) {
+            return c.indexOf(storagePrefix) === 0;
+          }).map(function(c) {
+            return c.slice(storagePrefix.length);
+          }).join('; ');
+        },
+        set: function(value) {
+          // Prefix the cookie name with our namespace.
+          var eqIdx = value.indexOf('=');
+          if (eqIdx > 0) {
+            var name = value.substring(0, eqIdx);
+            var rest = value.substring(eqIdx);
+            _origSet.call(document, storagePrefix + name + rest);
+          } else {
+            _origSet.call(document, storagePrefix + value);
+          }
+        },
+        configurable: false
+      });
+    }
+  } catch(e) {}
+
   // Helper to send messages to host via saved real parent.
   function sendToHost(msg) {
     _realParent.postMessage(msg, targetOrigin);
@@ -246,6 +279,8 @@ export function setupDomBridge(
 
   const messageHandler = (e: MessageEvent) => {
     if (e.source !== iframe.contentWindow) return;
+    // Validate origin for security.
+    if (parentOrigin && parentOrigin !== '*' && e.origin !== parentOrigin) return;
     if (!e.data?.__aiga_dom_bridge) return;
 
     switch (e.data.action) {

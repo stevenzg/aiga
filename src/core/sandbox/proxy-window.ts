@@ -202,6 +202,9 @@ function createDocumentProxy(
   // Scoped title: sub-app title writes don't leak to host document (DOM-03).
   let scopedTitle = document.title;
 
+  // Scoped cookie storage (SEC-02): sub-app cookies isolated from host.
+  let scopedCookies = '';
+
   return new Proxy(document, {
     get(target, prop, receiver) {
       const key = String(prop);
@@ -214,6 +217,11 @@ function createDocumentProxy(
       // Intercept title reads to return scoped value (DOM-03).
       if (key === 'title') {
         return scopedTitle;
+      }
+
+      // Intercept cookie reads to return scoped value (SEC-02).
+      if (key === 'cookie') {
+        return scopedCookies;
       }
 
       // Redirect querySelector / querySelectorAll to Shadow DOM scope.
@@ -244,7 +252,24 @@ function createDocumentProxy(
         return true;
       }
 
-      // Allow other writes through (e.g., document.cookie).
+      // Intercept cookie writes to scoped storage (SEC-02).
+      if (key === 'cookie') {
+        // Append cookie to scoped store (matches browser cookie semantics).
+        const cookieStr = String(value);
+        const eqIdx = cookieStr.indexOf('=');
+        if (eqIdx > 0) {
+          const name = cookieStr.substring(0, eqIdx).trim();
+          // Remove existing cookie with same name.
+          const existing = scopedCookies.split('; ').filter(
+            (c) => !c.startsWith(name + '='),
+          );
+          existing.push(cookieStr.split(';')[0]); // Only store name=value part
+          scopedCookies = existing.filter(Boolean).join('; ');
+        }
+        return true;
+      }
+
+      // Allow other writes through.
       return Reflect.set(document, prop, value);
     },
   });

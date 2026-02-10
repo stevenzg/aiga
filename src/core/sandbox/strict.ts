@@ -296,6 +296,19 @@ export class StrictSandbox implements SandboxAdapter {
       wrapper.classList.remove('aiga-promoted');
     }
     this.promoted.delete(appId);
+
+    // Re-sync iframe height after demotion: content may have changed while promoted.
+    const iframe = this.iframes.get(appId);
+    if (iframe) {
+      try {
+        const doc = iframe.contentDocument;
+        if (doc) {
+          iframe.style.height = `${doc.documentElement.scrollHeight}px`;
+        }
+      } catch {
+        // Cross-origin: rely on next resize message.
+      }
+    }
     console.debug(`[aiga] Iframe demoted: ${appId}`);
   }
 

@@ -79,15 +79,32 @@ export class OverlayLayer {
 
     this.observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
+        // Handle newly added nodes.
         for (const node of mutation.addedNodes) {
           if (node instanceof HTMLElement && isOverlayElement(node)) {
             this.teleport(node);
           }
         }
+
+        // Handle attribute changes: UI libraries often add elements first,
+        // then set class/role attributes that make them overlays.
+        if (
+          mutation.type === 'attributes' &&
+          mutation.target instanceof HTMLElement &&
+          !this.teleportedEls.has(mutation.target) &&
+          isOverlayElement(mutation.target)
+        ) {
+          this.teleport(mutation.target);
+        }
       }
     });
 
-    this.observer.observe(target, { childList: true, subtree: true });
+    this.observer.observe(target, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class', 'role', 'style'],
+    });
   }
 
   /**

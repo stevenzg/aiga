@@ -372,22 +372,25 @@ export class Router {
 
     for (const route of routes) {
       const params: Record<string, string> = {};
-      const matched = this.matchPath(pathOnly, route.path, params);
 
-      if (matched) {
-        const chain = [...parentChain, route];
-
-        // Check children first (longest match wins).
-        if (route.children?.length) {
-          const remainder = pathOnly.slice(route.path.replace(/\/:[\w]+/g, '').length) || '/';
+      // Try children first with prefix matching.
+      if (route.children?.length) {
+        const prefixResult = this.matchPrefix(pathOnly, route.path, params);
+        if (prefixResult !== null) {
+          const chain = [...parentChain, route];
+          const remainder = prefixResult || '/';
           const childMatch = this.matchRoute(remainder, route.children, chain);
           if (childMatch) {
             childMatch.params = { ...params, ...childMatch.params };
             return childMatch;
           }
         }
+      }
 
-        // Leaf match.
+      // Exact match for leaf routes.
+      const matched = this.matchPath(pathOnly, route.path, params);
+      if (matched) {
+        const chain = [...parentChain, route];
         return {
           path: pathOnly,
           config: route,
@@ -444,5 +447,32 @@ export class Router {
     }
 
     return true;
+  }
+
+  /**
+   * Match a URL path as a prefix of a route pattern (for nested routes).
+   * Returns the remainder path if the prefix matches, or null if no match.
+   */
+  private matchPrefix(
+    urlPath: string,
+    pattern: string,
+    params: Record<string, string>,
+  ): string | null {
+    const urlParts = urlPath.split('/').filter(Boolean);
+    const patternParts = pattern.split('/').filter(Boolean);
+
+    if (urlParts.length < patternParts.length) return null;
+
+    for (let i = 0; i < patternParts.length; i++) {
+      if (patternParts[i].startsWith(':')) {
+        params[patternParts[i].slice(1)] = urlParts[i];
+      } else if (patternParts[i] !== urlParts[i]) {
+        return null;
+      }
+    }
+
+    // Return the remaining path segments.
+    const remainder = '/' + urlParts.slice(patternParts.length).join('/');
+    return remainder;
   }
 }
