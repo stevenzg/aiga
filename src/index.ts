@@ -35,18 +35,31 @@ export { LightSandbox } from './core/sandbox/light.js';
 export { StrictSandbox } from './core/sandbox/strict.js';
 export { RemoteSandbox } from './core/sandbox/remote.js';
 
+// Sandbox internals (advanced usage)
+export { createScopedProxy } from './core/sandbox/proxy-window.js';
+export { setupDomBridge, getBridgeScript } from './core/sandbox/dom-bridge.js';
+
 // iframe Pool
 export { IframePool } from './core/iframe-pool/pool.js';
+export { KeepAliveManager } from './core/iframe-pool/keep-alive-manager.js';
+export type { KeepAlivePriority, KeepAliveEntry } from './core/iframe-pool/keep-alive-manager.js';
+export { Prewarmer } from './core/iframe-pool/prewarmer.js';
+export type { RouteConfig, PrewarmerOptions } from './core/iframe-pool/prewarmer.js';
 
 // Overlay Layer
 export { OverlayLayer } from './core/overlay/overlay-layer.js';
 
 // RPC
 export { RpcChannel } from './core/rpc/channel.js';
+export { useMicroApp, useShell, exposeApi } from './core/rpc/proxy.js';
+export type { AsyncProxy } from './core/rpc/proxy.js';
 export type { RpcProxy, Serializable, Unsubscribe } from './core/rpc/types.js';
 
 // Service Worker
 export { registerServiceWorker, SwController } from './sw/register.js';
+
+// Semver utilities (for external use / testing)
+export { parseSemver, compareSemver, isCompatible, negotiateVersion, VersionRegistry } from './sw/semver.js';
 
 // Web Component
 export { MfAppElement, registerMfApp } from './mf-app.js';
@@ -65,18 +78,25 @@ import { registerMfApp } from './mf-app.js';
  *
  * Call this once at application startup. It:
  * 1. Registers the `<mf-app>` custom element
- * 2. Initializes the iframe pool
- * 3. Optionally registers the Service Worker resource layer
+ * 2. Initializes the iframe pool with LRU + keep-alive manager
+ * 3. Sets up the smart prewarmer for predictive loading
+ * 4. Optionally registers the Service Worker resource layer
  *
  * @example
  * ```ts
  * import { initAiga } from 'aiga';
  *
- * initAiga({
+ * const aiga = initAiga({
  *   defaultSandbox: 'strict',
- *   pool: { initialSize: 3, maxSize: 10 },
+ *   pool: { initialSize: 3, maxSize: 10, maxAlive: 5 },
  *   cache: { enabled: true, swUrl: '/sw.js' },
  * });
+ *
+ * // Configure route-based smart prewarming:
+ * aiga.setRoutes([
+ *   { path: '/dashboard', appSrc: 'https://dashboard.app/', adjacentPaths: ['/settings'] },
+ *   { path: '/settings', appSrc: 'https://settings.app/' },
+ * ]);
  * ```
  */
 export function initAiga(config?: AigaConfig): Aiga {

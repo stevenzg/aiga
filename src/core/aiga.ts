@@ -1,6 +1,8 @@
 import type { AigaConfig, SandboxLevel } from './types.js';
 import type { SandboxAdapter } from './sandbox/adapter.js';
 import { IframePool } from './iframe-pool/pool.js';
+import { KeepAliveManager } from './iframe-pool/keep-alive-manager.js';
+import { Prewarmer, type RouteConfig } from './iframe-pool/prewarmer.js';
 import { NoneSandbox } from './sandbox/none.js';
 import { LightSandbox } from './sandbox/light.js';
 import { StrictSandbox } from './sandbox/strict.js';
@@ -10,13 +12,15 @@ import { registerServiceWorker, type SwController } from '../sw/register.js';
 /**
  * Global Aiga framework instance (singleton).
  *
- * Manages the iframe pool, sandbox adapter registry, and Service Worker
- * lifecycle. Lazily initialized on first `<mf-app>` mount.
+ * Manages the iframe pool, keep-alive state, sandbox adapter registry,
+ * smart prewarmer, and Service Worker lifecycle.
  */
 export class Aiga {
   private static instance: Aiga | null = null;
 
   readonly pool: IframePool;
+  readonly keepAlive: KeepAliveManager;
+  readonly prewarmer: Prewarmer;
   private adapters: Map<SandboxLevel, SandboxAdapter>;
   private swController: SwController | null = null;
   private config: AigaConfig;
@@ -24,6 +28,10 @@ export class Aiga {
   private constructor(config: AigaConfig = {}) {
     this.config = config;
     this.pool = new IframePool(config.pool);
+    this.keepAlive = new KeepAliveManager({
+      maxAlive: config.pool?.maxAlive,
+    });
+    this.prewarmer = new Prewarmer(this.pool);
 
     // Initialize sandbox adapters.
     this.adapters = new Map<SandboxLevel, SandboxAdapter>([
@@ -55,6 +63,16 @@ export class Aiga {
     this.adapters.set(level as SandboxLevel, adapter);
   }
 
+  /** Configure route-based smart prewarming. */
+  setRoutes(routes: RouteConfig[]): void {
+    this.prewarmer.setRoutes(routes);
+  }
+
+  /** Record a navigation event for predictive prewarming. */
+  recordNavigation(path: string): void {
+    this.prewarmer.recordNavigation(path);
+  }
+
   /** Initialize the Service Worker layer. */
   async initServiceWorker(): Promise<void> {
     if (this.config.cache?.enabled !== false) {
@@ -75,6 +93,8 @@ export class Aiga {
   /** Tear down the entire framework instance. */
   dispose(): void {
     this.pool.dispose();
+    this.keepAlive.dispose();
+    this.prewarmer.dispose();
     this.swController?.unregister();
     Aiga.instance = null;
   }

@@ -15,11 +15,17 @@ let instanceCounter = 0;
  *   <mf-app src="https://app.example.com" sandbox="strict" keep-alive />
  *
  * Works in any framework: React, Vue, Angular, Svelte, or vanilla HTML.
+ *
+ * Events:
+ *   - `status-change` — Fired on every lifecycle transition.
+ *   - `error` — Fired when loading or mounting fails.
+ *   - `rpc-ready` — Fired when the RPC channel is established.
+ *   - `keep-alive-start` — Fired when the app enters keep-alive state.
+ *   - `keep-alive-restore` — Fired when a kept-alive app is re-mounted.
  */
 export class MfAppElement extends HTMLElement {
   static readonly tagName = 'mf-app';
 
-  /** Observed attributes for reactive updates. */
   static get observedAttributes(): string[] {
     return ['src', 'sandbox', 'keep-alive', 'name'];
   }
@@ -31,6 +37,7 @@ export class MfAppElement extends HTMLElement {
   private container: HTMLElement | null = null;
   private shadow: ShadowRoot;
   private mounted = false;
+  private inKeepAlive = false;
 
   constructor() {
     super();
@@ -48,11 +55,10 @@ export class MfAppElement extends HTMLElement {
       lastActiveAt: Date.now(),
     };
 
-    // Attach Shadow DOM for encapsulation of the component itself.
     this.shadow = this.attachShadow({ mode: 'open' });
   }
 
-  // --- Public properties (reflect attributes) ---
+  // --- Public properties ---
 
   get src(): string {
     return this.getAttribute('src') ?? '';
@@ -80,9 +86,19 @@ export class MfAppElement extends HTMLElement {
     return this.getAttribute('name') ?? this.app.id;
   }
 
-  /** Get the RPC channel for type-safe communication with the sub-app. */
+  /** Get the RPC channel for communication with the sub-app. */
   get rpcChannel(): RpcChannel | null {
     return this.rpc;
+  }
+
+  /** Whether this app is currently in keep-alive state (unmounted but preserved). */
+  get isKeptAlive(): boolean {
+    return this.inKeepAlive;
+  }
+
+  /** Current lifecycle status. */
+  get status(): AppStatus {
+    return this.app.status;
   }
 
   // --- Lifecycle ---
@@ -92,7 +108,13 @@ export class MfAppElement extends HTMLElement {
     this.syncAppState();
 
     if (this.src) {
-      this.mount();
+      // Check if we're restoring from keep-alive.
+      const aiga = Aiga.getInstance();
+      if (this.inKeepAlive && aiga.keepAlive.has(this.app.id)) {
+        this.restoreFromKeepAlive();
+      } else {
+        this.mount();
+      }
     }
   }
 
@@ -124,7 +146,6 @@ export class MfAppElement extends HTMLElement {
 
   // --- Internal ---
 
-  /** Render the component's internal Shadow DOM structure. */
   private render(): void {
     const style = new CSSStyleSheet();
     style.replaceSync(`
@@ -179,7 +200,6 @@ export class MfAppElement extends HTMLElement {
     this.shadow.appendChild(this.container);
   }
 
-  /** Sync the internal app state with the current attributes. */
   private syncAppState(): void {
     this.app.src = this.src;
     this.app.sandbox = this.sandboxLevel;
@@ -187,7 +207,6 @@ export class MfAppElement extends HTMLElement {
     this.app.name = this.appName;
   }
 
-  /** Mount the sub-application. */
   private async mount(): Promise<void> {
     if (this.mounted || !this.container) return;
 
@@ -217,7 +236,11 @@ export class MfAppElement extends HTMLElement {
         this.setupRpc();
       }
 
+      // Record visit for keep-alive priority tracking.
+      aiga.keepAlive.recordVisit(this.app.id);
+
       this.mounted = true;
+      this.inKeepAlive = false;
       this.setStatus('mounted');
 
       this.dispatchEvent(
@@ -232,7 +255,7 @@ export class MfAppElement extends HTMLElement {
     }
   }
 
-  /** Unmount the sub-application. */
+  /** Unmount the sub-application with keep-alive support. */
   private async unmountApp(): Promise<void> {
     if (!this.mounted || !this.adapter) return;
 
@@ -246,9 +269,31 @@ export class MfAppElement extends HTMLElement {
       this.overlay = null;
 
       if (this.keepAlive) {
+        // Enter keep-alive state: unmount but preserve internal state.
         await this.adapter.unmount(this.app);
+        this.inKeepAlive = true;
+
+        // Register with the KeepAliveManager (may evict another app).
+        const aiga = Aiga.getInstance();
+        const evictedId = aiga.keepAlive.add(
+          this.app.id,
+          this.app.name,
+          this.app.iframe,
+        );
+
+        if (evictedId) {
+          console.debug(`[aiga] Evicted keep-alive app "${evictedId}" to stay within maxAlive limit.`);
+        }
+
+        this.dispatchEvent(
+          new CustomEvent('keep-alive-start', {
+            detail: { appName: this.appName, appId: this.app.id },
+            bubbles: true,
+          }),
+        );
       } else {
         await this.adapter.destroy(this.app);
+        this.inKeepAlive = false;
       }
     } catch (err) {
       console.error('[aiga] Error during unmount:', err);
@@ -258,15 +303,49 @@ export class MfAppElement extends HTMLElement {
     this.setStatus('unmounted');
   }
 
-  /** Remount: unmount then mount with potentially new config. */
+  /** Restore from keep-alive: fast re-mount without full reload. */
+  private async restoreFromKeepAlive(): Promise<void> {
+    this.setStatus('mounting');
+
+    try {
+      const aiga = Aiga.getInstance();
+      const level = this.sandboxLevel;
+      this.adapter = aiga.getAdapter(level);
+      this.app.container = this.container;
+
+      if (this.container) {
+        this.clearContainer();
+        await this.adapter.mount(this.app, this.container);
+      }
+
+      if (level === 'strict' || level === 'remote') {
+        this.setupRpc();
+      }
+
+      aiga.keepAlive.recordVisit(this.app.id);
+
+      this.mounted = true;
+      this.inKeepAlive = false;
+      this.setStatus('mounted');
+
+      this.dispatchEvent(
+        new CustomEvent('keep-alive-restore', {
+          detail: { appName: this.appName, appId: this.app.id },
+          bubbles: true,
+        }),
+      );
+    } catch (err) {
+      this.setStatus('error');
+      this.showError(err instanceof Error ? err : new Error(String(err)));
+    }
+  }
+
   private async remount(): Promise<void> {
     await this.unmountApp();
     await this.mount();
   }
 
-  /** Set up the RPC channel for iframe-based communication. */
   private setupRpc(): void {
-    // Find the iframe element.
     const iframe = this.container?.querySelector('iframe') ??
       this.shadow.querySelector('iframe');
     if (iframe?.contentWindow) {
@@ -274,7 +353,6 @@ export class MfAppElement extends HTMLElement {
     }
   }
 
-  /** Update the app status and dispatch a change event. */
   private setStatus(status: AppStatus): void {
     const prev = this.app.status;
     this.app.status = status;
@@ -288,7 +366,6 @@ export class MfAppElement extends HTMLElement {
     );
   }
 
-  /** Show a loading indicator. */
   private showLoading(): void {
     if (!this.container) return;
     this.clearContainer();
@@ -298,7 +375,6 @@ export class MfAppElement extends HTMLElement {
     this.container.appendChild(loading);
   }
 
-  /** Show an error message. */
   private showError(error: Error): void {
     if (!this.container) return;
     this.clearContainer();

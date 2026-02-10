@@ -4,6 +4,7 @@
  * Provides centralized cache management across all iframe boundaries:
  * - Cross-iframe cache sharing (one parsed copy per resource)
  * - Configurable cache strategies (cache-first, network-first, stale-while-revalidate)
+ * - Semver-aware dependency version negotiation
  * - Programmable eviction and integrity checks
  * - Offline support for previously loaded sub-app resources
  */
@@ -27,23 +28,108 @@ const STRATEGY_MAP: Record<string, CacheStrategy> = {
   fetch: 'network-first',
 };
 
-/** Determine the caching strategy for a request. */
+// ─── Semver Version Negotiation ────────────────────────────────────
+
+interface SemVer {
+  major: number;
+  minor: number;
+  patch: number;
+  raw: string;
+}
+
+function parseSemver(version: string): SemVer | null {
+  const match = version.match(/^v?(\d+)\.(\d+)\.(\d+)/);
+  if (!match) return null;
+  return {
+    major: parseInt(match[1], 10),
+    minor: parseInt(match[2], 10),
+    patch: parseInt(match[3], 10),
+    raw: version,
+  };
+}
+
+function compareSemver(a: SemVer, b: SemVer): number {
+  if (a.major !== b.major) return a.major - b.major;
+  if (a.minor !== b.minor) return a.minor - b.minor;
+  return a.patch - b.patch;
+}
+
+/**
+ * In-SW version registry for dependency negotiation.
+ * Tracks requested versions across all iframes and resolves
+ * to the highest backward-compatible version per package.
+ */
+const versionRequests = new Map<string, SemVer[]>();
+const resolvedVersions = new Map<string, SemVer>();
+
+function registerVersion(pkg: string, version: string): SemVer | null {
+  const sv = parseSemver(version);
+  if (!sv) return null;
+
+  let versions = versionRequests.get(pkg);
+  if (!versions) {
+    versions = [];
+    versionRequests.set(pkg, versions);
+  }
+  if (!versions.some((v) => v.raw === sv.raw)) {
+    versions.push(sv);
+  }
+
+  // Negotiate: find the highest version that shares the same major.
+  const major = versions[0].major;
+  if (versions.every((v) => v.major === major)) {
+    const best = versions.reduce((a, b) => (compareSemver(b, a) > 0 ? b : a));
+    resolvedVersions.set(pkg, best);
+    return best;
+  }
+  return null; // Incompatible majors — cannot negotiate.
+}
+
+/** Match versioned package URLs (CDN, unpkg, node_modules patterns). */
+function matchPackageUrl(url: string): { name: string; version: string } | null {
+  const patterns = [
+    /\/npm\/(@?[^@/]+)@(\d+\.\d+\.\d+[^/]*)/,
+    /\/node_modules\/(@?[^@/]+)@(\d+\.\d+\.\d+[^/]*)/,
+    /\/(@?[^@/]+)@(\d+\.\d+\.\d+[^/]*)/,
+    /\/([a-z][\w.-]+)\/(\d+\.\d+\.\d+)\//,
+  ];
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match) return { name: match[1], version: match[2] };
+  }
+  return null;
+}
+
+/**
+ * Attempt to rewrite a URL to use the negotiated version.
+ * e.g., react@18.2.0 → react@18.3.1 (if 18.3.1 is resolved).
+ */
+function maybeRewriteUrl(url: string): string {
+  const pkg = matchPackageUrl(url);
+  if (!pkg) return url;
+
+  registerVersion(pkg.name, pkg.version);
+  const resolved = resolvedVersions.get(pkg.name);
+  if (resolved && resolved.raw !== pkg.version) {
+    return url.replace(pkg.version, resolved.raw);
+  }
+  return url;
+}
+
+// ─── Cache Strategies ──────────────────────────────────────────────
+
 function getStrategy(request: Request): CacheStrategy {
   const dest = request.destination;
   if (dest && dest in STRATEGY_MAP) {
     return STRATEGY_MAP[dest];
   }
-
-  // Heuristic: versioned assets (content-hashed filenames) use cache-first.
   const url = new URL(request.url);
   if (/\.[a-f0-9]{8,}\.(js|css|woff2?|ttf|otf|png|jpg|svg)$/i.test(url.pathname)) {
     return 'cache-first';
   }
-
   return 'network-first';
 }
 
-/** Cache-first: serve from cache, fall back to network. */
 async function cacheFirst(request: Request): Promise<Response> {
   const cache = await caches.open(CACHE_NAME);
   const cached = await cache.match(request);
@@ -56,7 +142,6 @@ async function cacheFirst(request: Request): Promise<Response> {
   return response;
 }
 
-/** Network-first: try network, fall back to cache. */
 async function networkFirst(request: Request): Promise<Response> {
   const cache = await caches.open(CACHE_NAME);
   try {
@@ -72,12 +157,10 @@ async function networkFirst(request: Request): Promise<Response> {
   }
 }
 
-/** Stale-while-revalidate: serve from cache, update in background. */
 async function staleWhileRevalidate(request: Request): Promise<Response> {
   const cache = await caches.open(CACHE_NAME);
   const cached = await cache.match(request);
 
-  // Fire off a background revalidation regardless.
   const networkPromise = fetch(request).then((response) => {
     if (response.ok) {
       cache.put(request, response.clone());
@@ -85,14 +168,11 @@ async function staleWhileRevalidate(request: Request): Promise<Response> {
     return response;
   });
 
-  // Return cached immediately if available.
   if (cached) return cached;
-
-  // No cache — wait for network.
   return networkPromise;
 }
 
-// --- Service Worker Lifecycle ---
+// ─── Service Worker Lifecycle ──────────────────────────────────────
 
 sw.addEventListener('install', (event: ExtendableEvent) => {
   event.waitUntil(sw.skipWaiting());
@@ -109,29 +189,32 @@ sw.addEventListener('activate', (event: ExtendableEvent) => {
 
 sw.addEventListener('fetch', (event: FetchEvent) => {
   const { request } = event;
-
-  // Only intercept HTTP(S) requests.
   if (!request.url.startsWith('http')) return;
-
-  // Skip non-GET requests.
   if (request.method !== 'GET') return;
 
-  const strategy = getStrategy(request);
+  // Apply semver version negotiation for versioned package URLs.
+  const rewrittenUrl = maybeRewriteUrl(request.url);
+  const effectiveRequest =
+    rewrittenUrl !== request.url
+      ? new Request(rewrittenUrl, request)
+      : request;
+
+  const strategy = getStrategy(effectiveRequest);
 
   switch (strategy) {
     case 'cache-first':
-      event.respondWith(cacheFirst(request));
+      event.respondWith(cacheFirst(effectiveRequest));
       break;
     case 'network-first':
-      event.respondWith(networkFirst(request));
+      event.respondWith(networkFirst(effectiveRequest));
       break;
     case 'stale-while-revalidate':
-      event.respondWith(staleWhileRevalidate(request));
+      event.respondWith(staleWhileRevalidate(effectiveRequest));
       break;
   }
 });
 
-// Handle messages from the main thread (cache control commands).
+// Handle messages from the main thread.
 sw.addEventListener('message', (event: ExtendableMessageEvent) => {
   const { data } = event;
   if (!data?.__aiga_sw) return;
@@ -145,6 +228,16 @@ sw.addEventListener('message', (event: ExtendableMessageEvent) => {
       break;
     case 'evict':
       evictUrl(data.url as string);
+      break;
+    case 'register-version':
+      registerVersion(data.package as string, data.version as string);
+      break;
+    case 'get-resolved-versions':
+      event.source?.postMessage({
+        __aiga_sw: true,
+        type: 'resolved-versions',
+        versions: Object.fromEntries(resolvedVersions),
+      });
       break;
   }
 });
