@@ -47,7 +47,7 @@ export class RemoteSandbox implements SandboxAdapter {
     if (!iframe) {
       iframe = document.createElement('iframe');
       iframe.setAttribute('data-aiga-remote', app.name);
-      iframe.style.cssText = 'border:none;width:100%;min-height:200px;display:block;';
+      iframe.style.cssText = 'border:none;width:100%;height:100%;min-height:200px;display:block;';
 
       // Security: omit allow-same-origin for untrusted content.
       iframe.setAttribute(

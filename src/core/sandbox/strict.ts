@@ -75,10 +75,12 @@ export class StrictSandbox implements SandboxAdapter {
       :host {
         display: block;
         width: 100%;
+        height: 100%;
         contain: layout;
       }
       .aiga-iframe-wrapper {
         width: 100%;
+        height: 100%;
         overflow: hidden;
         position: relative;
       }
@@ -94,6 +96,7 @@ export class StrictSandbox implements SandboxAdapter {
       iframe {
         border: none;
         width: 100%;
+        height: 100%;
         display: block;
         min-height: 200px;
       }

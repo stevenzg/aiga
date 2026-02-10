@@ -187,13 +187,13 @@ function AppCard({
           {app.sandbox}
         </span>
       </div>
-      <div ref={ref} className="min-h-[420px]">
+      <div ref={ref} style={{ height: '70vh', minHeight: '400px', maxHeight: '800px' }}>
         {/* @ts-expect-error -- aiga-app is a custom element */}
         <aiga-app
           name={app.name}
           src={app.src}
           sandbox={app.sandbox}
-          style={{ display: 'block', width: '100%', height: '100%', minHeight: '420px' }}
+          style={{ display: 'block', width: '100%', height: '100%' }}
         />
       </div>
     </div>
