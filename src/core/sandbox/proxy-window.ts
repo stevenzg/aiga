@@ -13,6 +13,8 @@
  * leakage, not malicious attacks. For untrusted code, use `strict`.
  */
 
+import { createTimerTracker } from './timer-tracker.js';
+
 export interface ProxyWindowOptions {
   /** The Shadow DOM root to use as the document proxy target. */
   shadowRoot: ShadowRoot;
@@ -27,6 +29,23 @@ interface ScopedContext {
   revoke: () => void;
 }
 
+// Frozen set of properties that should never be proxied.
+const PASSTHROUGH_PROPS = new Set([
+  'window', 'self', 'globalThis',
+  'addEventListener', 'removeEventListener', 'dispatchEvent',
+  'fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource',
+  'Promise', 'Symbol', 'Proxy', 'Reflect',
+  'Map', 'Set', 'WeakMap', 'WeakSet',
+  'Array', 'Object', 'String', 'Number', 'Boolean',
+  'JSON', 'Math', 'Date', 'RegExp', 'Error',
+  'console', 'performance', 'navigator', 'location', 'history',
+  'crypto', 'URL', 'URLSearchParams',
+  'CustomEvent', 'Event', 'MutationObserver', 'ResizeObserver',
+  'IntersectionObserver',
+  'HTMLElement', 'Element', 'Node', 'Document',
+  'undefined', 'NaN', 'Infinity',
+]);
+
 /**
  * Create a scoped window proxy for lightweight JS isolation.
  * Property writes go to a local scope map; reads fall through to `window`.
@@ -34,63 +53,10 @@ interface ScopedContext {
 export function createScopedProxy(options: ProxyWindowOptions): ScopedContext {
   const { shadowRoot } = options;
   const localScope: Record<string, unknown> = Object.create(null);
-
-  // Track what properties have been locally shadowed.
   const localKeys = new Set<string>();
 
-  // Timer tracking for cleanup (JS-10).
-  const trackedTimeouts = new Set<ReturnType<typeof setTimeout>>();
-  const trackedIntervals = new Set<ReturnType<typeof setInterval>>();
-  const trackedRAFs = new Set<number>();
-
-  // Frozen set of properties that should never be proxied.
-  const passthrough = new Set([
-    'window', 'self', 'globalThis',
-    'addEventListener', 'removeEventListener', 'dispatchEvent',
-    'fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource',
-    'Promise', 'Symbol', 'Proxy', 'Reflect',
-    'Map', 'Set', 'WeakMap', 'WeakSet',
-    'Array', 'Object', 'String', 'Number', 'Boolean',
-    'JSON', 'Math', 'Date', 'RegExp', 'Error',
-    'console', 'performance', 'navigator', 'location', 'history',
-    'crypto', 'URL', 'URLSearchParams',
-    'CustomEvent', 'Event', 'MutationObserver', 'ResizeObserver',
-    'IntersectionObserver',
-    'HTMLElement', 'Element', 'Node', 'Document',
-    'undefined', 'NaN', 'Infinity',
-  ]);
-
-  // Create a cached document proxy (stable identity).
+  const timers = createTimerTracker();
   const documentProxy = createDocumentProxy(shadowRoot, options.onOverlayDetected);
-
-  // Timer wrapper functions that track IDs for cleanup.
-  const wrappedSetTimeout = (...args: Parameters<typeof setTimeout>): ReturnType<typeof setTimeout> => {
-    const id = setTimeout(...args);
-    trackedTimeouts.add(id);
-    return id;
-  };
-  const wrappedClearTimeout = (id: ReturnType<typeof setTimeout>): void => {
-    trackedTimeouts.delete(id);
-    clearTimeout(id);
-  };
-  const wrappedSetInterval = (...args: Parameters<typeof setInterval>): ReturnType<typeof setInterval> => {
-    const id = setInterval(...args);
-    trackedIntervals.add(id);
-    return id;
-  };
-  const wrappedClearInterval = (id: ReturnType<typeof setInterval>): void => {
-    trackedIntervals.delete(id);
-    clearInterval(id);
-  };
-  const wrappedRAF = (cb: FrameRequestCallback): number => {
-    const id = requestAnimationFrame(cb);
-    trackedRAFs.add(id);
-    return id;
-  };
-  const wrappedCancelRAF = (id: number): void => {
-    trackedRAFs.delete(id);
-    cancelAnimationFrame(id);
-  };
 
   const { proxy, revoke: revokeProxy } = Proxy.revocable(window, {
     get(target, prop, receiver) {
@@ -105,12 +71,12 @@ export function createScopedProxy(options: ProxyWindowOptions): ScopedContext {
       }
 
       // Timer wrappers with tracking (JS-10).
-      if (key === 'setTimeout') return wrappedSetTimeout;
-      if (key === 'clearTimeout') return wrappedClearTimeout;
-      if (key === 'setInterval') return wrappedSetInterval;
-      if (key === 'clearInterval') return wrappedClearInterval;
-      if (key === 'requestAnimationFrame') return wrappedRAF;
-      if (key === 'cancelAnimationFrame') return wrappedCancelRAF;
+      if (key === 'setTimeout') return timers.setTimeout;
+      if (key === 'clearTimeout') return timers.clearTimeout;
+      if (key === 'setInterval') return timers.setInterval;
+      if (key === 'clearInterval') return timers.clearInterval;
+      if (key === 'requestAnimationFrame') return timers.requestAnimationFrame;
+      if (key === 'cancelAnimationFrame') return timers.cancelAnimationFrame;
 
       // Check local scope first (locally-written properties).
       if (localKeys.has(key)) {
@@ -121,7 +87,7 @@ export function createScopedProxy(options: ProxyWindowOptions): ScopedContext {
       const value = Reflect.get(target, prop, receiver);
 
       // Bind functions to the real window to avoid illegal invocation.
-      if (typeof value === 'function' && passthrough.has(key)) {
+      if (typeof value === 'function' && PASSTHROUGH_PROPS.has(key)) {
         return value.bind(target);
       }
 
@@ -156,14 +122,7 @@ export function createScopedProxy(options: ProxyWindowOptions): ScopedContext {
   });
 
   const revoke = () => {
-    // Clear all tracked timers (JS-10).
-    for (const id of trackedTimeouts) clearTimeout(id);
-    trackedTimeouts.clear();
-    for (const id of trackedIntervals) clearInterval(id);
-    trackedIntervals.clear();
-    for (const id of trackedRAFs) cancelAnimationFrame(id);
-    trackedRAFs.clear();
-
+    timers.clearAll();
     revokeProxy();
   };
 
@@ -210,19 +169,13 @@ function createDocumentProxy(
       const key = String(prop);
 
       // Redirect body access to our Shadow DOM container (cached proxy).
-      if (key === 'body') {
-        return getBodyProxy();
-      }
+      if (key === 'body') return getBodyProxy();
 
       // Intercept title reads to return scoped value (DOM-03).
-      if (key === 'title') {
-        return scopedTitle;
-      }
+      if (key === 'title') return scopedTitle;
 
       // Intercept cookie reads to return scoped value (SEC-02).
-      if (key === 'cookie') {
-        return scopedCookies;
-      }
+      if (key === 'cookie') return scopedCookies;
 
       // Redirect querySelector / querySelectorAll to Shadow DOM scope.
       if (key === 'querySelector') {
@@ -254,12 +207,10 @@ function createDocumentProxy(
 
       // Intercept cookie writes to scoped storage (SEC-02).
       if (key === 'cookie') {
-        // Append cookie to scoped store (matches browser cookie semantics).
         const cookieStr = String(value);
         const eqIdx = cookieStr.indexOf('=');
         if (eqIdx > 0) {
           const name = cookieStr.substring(0, eqIdx).trim();
-          // Remove existing cookie with same name.
           const existing = scopedCookies.split('; ').filter(
             (c) => !c.startsWith(name + '='),
           );

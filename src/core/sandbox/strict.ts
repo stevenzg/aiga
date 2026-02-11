@@ -24,6 +24,21 @@ function collectCssVariables(): Record<string, string> {
   return vars;
 }
 
+/** Per-app state managed by the strict sandbox. */
+interface AppState {
+  iframe: HTMLIFrameElement;
+  origin: string;
+  shadowRoot: ShadowRoot;
+  wrapper: HTMLElement;
+  messageListener?: (e: MessageEvent) => void;
+  resizeListener?: (e: MessageEvent) => void;
+  resizeObserver?: ResizeObserver;
+  bridgeCleanup?: () => void;
+  loadListener?: () => void;
+  cssObserver?: MutationObserver;
+  promoted?: { originalStyle: string };
+}
+
 /**
  * `sandbox="strict"` — Pooled iframe + Shadow DOM + Proxy bridge + Overlay layer.
  *
@@ -42,23 +57,12 @@ function collectCssVariables(): Record<string, string> {
  */
 export class StrictSandbox implements SandboxAdapter {
   readonly name = 'strict';
-  private iframes = new Map<string, HTMLIFrameElement>();
-  private shadowRoots = new Map<string, ShadowRoot>();
-  private wrappers = new Map<string, HTMLElement>();
-  private messageListeners = new Map<string, (e: MessageEvent) => void>();
-  private resizeListeners = new Map<string, (e: MessageEvent) => void>();
-  private resizeObservers = new Map<string, ResizeObserver>();
-  private bridgeCleanups = new Map<string, () => void>();
-  private loadListeners = new Map<string, () => void>();
-  private appOrigins = new Map<string, string>();
-  private cssObservers = new Map<string, MutationObserver>();
-  private promoted = new Map<string, { originalStyle: string }>();
+  private apps = new Map<string, AppState>();
 
   constructor(private pool: IframePool) {}
 
   async mount(app: AppInstance, container: HTMLElement): Promise<void> {
     const origin = getOrigin(app.src);
-    this.appOrigins.set(app.id, origin);
 
     // Create Shadow DOM host for layout encapsulation.
     const host = document.createElement('div');
@@ -66,8 +70,7 @@ export class StrictSandbox implements SandboxAdapter {
     host.style.cssText = 'display:block;width:100%;height:100%;position:relative;';
     container.appendChild(host);
 
-    const shadow = host.attachShadow({ mode: 'open' });
-    this.shadowRoots.set(app.id, shadow);
+    const shadowRoot = host.attachShadow({ mode: 'open' });
 
     // Style the iframe container inside Shadow DOM.
     const style = new CSSStyleSheet();
@@ -105,15 +108,12 @@ export class StrictSandbox implements SandboxAdapter {
         height: 100vh;
       }
     `);
-    shadow.adoptedStyleSheets = [style];
+    shadowRoot.adoptedStyleSheets = [style];
 
     // Reuse existing iframe (keepAlive restore) or acquire from pool.
-    let iframe = this.iframes.get(app.id);
-    const isRestore = !!iframe;
-    if (!iframe) {
-      iframe = this.pool.acquire(app.id);
-      this.iframes.set(app.id, iframe);
-    }
+    const existing = this.apps.get(app.id);
+    const isRestore = !!existing;
+    const iframe = existing?.iframe ?? this.pool.acquire(app.id);
 
     // Expose iframe reference on the AppInstance so aiga-app.ts can find it
     // for RPC setup (querySelector can't pierce this nested Shadow DOM).
@@ -123,20 +123,22 @@ export class StrictSandbox implements SandboxAdapter {
     const wrapper = document.createElement('div');
     wrapper.className = 'aiga-iframe-wrapper';
     wrapper.appendChild(iframe);
-    shadow.appendChild(wrapper);
-    this.wrappers.set(app.id, wrapper);
+    shadowRoot.appendChild(wrapper);
+
+    // Initialize per-app state.
+    const state: AppState = { iframe, origin, shadowRoot, wrapper };
+    this.apps.set(app.id, state);
 
     // Set up the DOM bridge with iframe promotion callbacks (OV-01~07).
-    const cleanupBridge = setupDomBridge(iframe, {
+    state.bridgeCleanup = setupDomBridge(iframe, {
       parentOrigin: origin,
       appId: app.id,
       onOverlayShow: () => this.promoteIframe(app.id),
       onOverlayHide: () => this.demoteIframe(app.id),
     });
-    this.bridgeCleanups.set(app.id, cleanupBridge);
 
     // Set up auto-resizing: listen for height changes from the iframe.
-    this.setupAutoResize(app.id, iframe);
+    this.setupAutoResize(app.id, state);
 
     // Only navigate on fresh mount (not keepAlive restore).
     if (!isRestore) {
@@ -171,77 +173,49 @@ export class StrictSandbox implements SandboxAdapter {
     // Sync CSS variables on both fresh mount and keep-alive restore (CSS-03).
     // The observer is cleaned up in unmount(), so it must be re-created on restore.
     this.sendCssVariables(iframe, origin);
-    this.observeCssVariables(app.id, iframe, origin);
+    this.observeCssVariables(app.id, state, iframe, origin);
   }
 
   async unmount(app: AppInstance): Promise<void> {
+    const state = this.apps.get(app.id);
+    if (!state) return;
+
     // Demote iframe if promoted.
     this.demoteIframe(app.id);
 
-    // Clean up resize observer.
-    const observer = this.resizeObservers.get(app.id);
-    if (observer) {
-      observer.disconnect();
-      this.resizeObservers.delete(app.id);
-    }
-
-    // Clean up resize message listener.
-    const resizeListener = this.resizeListeners.get(app.id);
-    if (resizeListener) {
-      window.removeEventListener('message', resizeListener);
-      this.resizeListeners.delete(app.id);
-    }
-
-    // Clean up load listener from setupAutoResize.
-    const iframe = this.iframes.get(app.id);
-    const loadListener = this.loadListeners.get(app.id);
-    if (loadListener && iframe) {
-      iframe.removeEventListener('load', loadListener);
-      this.loadListeners.delete(app.id);
-    }
-
-    // Clean up app message listener.
-    const listener = this.messageListeners.get(app.id);
-    if (listener) {
-      window.removeEventListener('message', listener);
-      this.messageListeners.delete(app.id);
-    }
-
-    // Clean up DOM bridge.
-    this.bridgeCleanups.get(app.id)?.();
-    this.bridgeCleanups.delete(app.id);
-
-    // Clean up CSS observer.
-    this.cssObservers.get(app.id)?.disconnect();
-    this.cssObservers.delete(app.id);
-
-    // Clean up wrapper ref.
-    this.wrappers.delete(app.id);
+    // Clean up all listeners and observers.
+    state.resizeObserver?.disconnect();
+    if (state.resizeListener) window.removeEventListener('message', state.resizeListener);
+    if (state.loadListener) state.iframe.removeEventListener('load', state.loadListener);
+    if (state.messageListener) window.removeEventListener('message', state.messageListener);
+    state.bridgeCleanup?.();
+    state.cssObserver?.disconnect();
 
     // Preserve iframe reference for keepAlive restore.
     // Don't release to pool or delete — destroy() handles permanent cleanup.
-    if (iframe) {
-      app.iframe = iframe;
-    }
+    app.iframe = state.iframe;
 
-    const shadow = this.shadowRoots.get(app.id);
-    if (shadow) {
-      (shadow.host as HTMLElement).remove();
-      this.shadowRoots.delete(app.id);
-    }
+    // Remove shadow DOM host.
+    (state.shadowRoot.host as HTMLElement).remove();
 
-    this.appOrigins.delete(app.id);
+    // Keep only iframe ref for potential restore; clear the rest.
+    this.apps.set(app.id, {
+      iframe: state.iframe,
+      origin: state.origin,
+      shadowRoot: state.shadowRoot,
+      wrapper: state.wrapper,
+    });
   }
 
   async destroy(app: AppInstance): Promise<void> {
-    // Save iframe ref before unmount clears it.
-    const iframe = this.iframes.get(app.id);
+    const state = this.apps.get(app.id);
+    const iframe = state?.iframe;
 
     // Unmount first (cleans up listeners, overlays, shadow DOM).
     await this.unmount(app);
 
     // Permanently clean up iframe.
-    this.iframes.delete(app.id);
+    this.apps.delete(app.id);
     app.iframe = null;
     if (iframe) {
       this.pool.remove(iframe);
@@ -249,33 +223,33 @@ export class StrictSandbox implements SandboxAdapter {
   }
 
   postMessage(app: AppInstance, message: unknown): void {
-    const iframe = this.iframes.get(app.id);
-    const origin = this.appOrigins.get(app.id) ?? '*';
-    if (iframe?.contentWindow) {
-      iframe.contentWindow.postMessage(
+    const state = this.apps.get(app.id);
+    if (state?.iframe.contentWindow) {
+      state.iframe.contentWindow.postMessage(
         { __aiga: true, payload: message },
-        origin,
+        state.origin,
       );
     }
   }
 
   onMessage(app: AppInstance, handler: (data: unknown) => void): () => void {
-    const iframe = this.iframes.get(app.id);
-    const expectedOrigin = this.appOrigins.get(app.id);
+    const state = this.apps.get(app.id);
+    if (!state) return () => {};
+
     const listener = (e: MessageEvent) => {
-      if (iframe?.contentWindow && e.source === iframe.contentWindow) {
-        if (expectedOrigin && expectedOrigin !== '*' && e.origin !== expectedOrigin) return;
+      if (state.iframe.contentWindow && e.source === state.iframe.contentWindow) {
+        if (state.origin !== '*' && e.origin !== state.origin) return;
         if (e.data?.__aiga) {
           handler(e.data.payload);
         }
       }
     };
     window.addEventListener('message', listener);
-    this.messageListeners.set(app.id, listener);
+    state.messageListener = listener;
 
     return () => {
       window.removeEventListener('message', listener);
-      this.messageListeners.delete(app.id);
+      state.messageListener = undefined;
     };
   }
 
@@ -285,37 +259,30 @@ export class StrictSandbox implements SandboxAdapter {
    * full interactivity (clicks, scrolling, animations all work).
    */
   private promoteIframe(appId: string): void {
-    if (this.promoted.has(appId)) return;
-    const wrapper = this.wrappers.get(appId);
-    if (!wrapper) return;
+    const state = this.apps.get(appId);
+    if (!state || state.promoted) return;
 
-    this.promoted.set(appId, { originalStyle: wrapper.style.cssText });
-    wrapper.classList.add('aiga-promoted');
+    state.promoted = { originalStyle: state.wrapper.style.cssText };
+    state.wrapper.classList.add('aiga-promoted');
     console.debug(`[aiga] Iframe promoted for overlay: ${appId}`);
   }
 
   /** Demote iframe back to inline mode after overlay is dismissed. */
   private demoteIframe(appId: string): void {
-    const state = this.promoted.get(appId);
-    if (!state) return;
+    const state = this.apps.get(appId);
+    if (!state?.promoted) return;
 
-    const wrapper = this.wrappers.get(appId);
-    if (wrapper) {
-      wrapper.classList.remove('aiga-promoted');
-    }
-    this.promoted.delete(appId);
+    state.wrapper.classList.remove('aiga-promoted');
+    state.promoted = undefined;
 
     // Re-sync iframe height after demotion: content may have changed while promoted.
-    const iframe = this.iframes.get(appId);
-    if (iframe) {
-      try {
-        const doc = iframe.contentDocument;
-        if (doc) {
-          iframe.style.height = `${doc.documentElement.scrollHeight}px`;
-        }
-      } catch {
-        // Cross-origin: rely on next resize message.
+    try {
+      const doc = state.iframe.contentDocument;
+      if (doc) {
+        state.iframe.style.height = `${doc.documentElement.scrollHeight}px`;
       }
+    } catch {
+      // Cross-origin: rely on next resize message.
     }
     console.debug(`[aiga] Iframe demoted: ${appId}`);
   }
@@ -330,7 +297,12 @@ export class StrictSandbox implements SandboxAdapter {
   }
 
   /** Observe :root for CSS variable changes and re-send to iframe (CSS-03). */
-  private observeCssVariables(appId: string, iframe: HTMLIFrameElement, origin: string): void {
+  private observeCssVariables(
+    appId: string,
+    state: AppState,
+    iframe: HTMLIFrameElement,
+    origin: string,
+  ): void {
     const observer = new MutationObserver(() => {
       this.sendCssVariables(iframe, origin);
     });
@@ -338,7 +310,7 @@ export class StrictSandbox implements SandboxAdapter {
       attributes: true,
       attributeFilter: ['style', 'class'],
     });
-    this.cssObservers.set(appId, observer);
+    state.cssObserver = observer;
   }
 
   /**
@@ -346,42 +318,42 @@ export class StrictSandbox implements SandboxAdapter {
    * Uses postMessage-based protocol for cross-origin iframes,
    * plus ResizeObserver for same-origin iframes.
    */
-  private setupAutoResize(appId: string, iframe: HTMLIFrameElement): void {
-    const expectedOrigin = this.appOrigins.get(appId);
+  private setupAutoResize(appId: string, state: AppState): void {
+    const { iframe, origin } = state;
 
     // Message-based resize listener (cleaned up on unmount).
     const onMessage = (e: MessageEvent) => {
       if (e.source !== iframe.contentWindow) return;
-      if (expectedOrigin && expectedOrigin !== '*' && e.origin !== expectedOrigin) return;
+      if (origin !== '*' && e.origin !== origin) return;
       if (e.data?.__aiga_resize) {
         // Don't resize when promoted (iframe is full viewport).
-        if (this.promoted.has(appId)) return;
+        if (state.promoted) return;
         iframe.style.height = `${e.data.height}px`;
       }
     };
     window.addEventListener('message', onMessage);
-    this.resizeListeners.set(appId, onMessage);
+    state.resizeListener = onMessage;
 
     // Same-origin ResizeObserver fallback (one-time setup on load).
     const onLoad = () => {
       iframe.removeEventListener('load', onLoad);
-      this.loadListeners.delete(appId);
+      state.loadListener = undefined;
       try {
         const doc = iframe.contentDocument;
         if (doc) {
           const ro = new ResizeObserver(() => {
-            if (this.promoted.has(appId)) return;
+            if (state.promoted) return;
             const height = doc.documentElement.scrollHeight;
             iframe.style.height = `${height}px`;
           });
           ro.observe(doc.documentElement);
-          this.resizeObservers.set(appId, ro);
+          state.resizeObserver = ro;
         }
       } catch {
         // Cross-origin: fall back to message-based resize.
       }
     };
     iframe.addEventListener('load', onLoad);
-    this.loadListeners.set(appId, onLoad);
+    state.loadListener = onLoad;
   }
 }

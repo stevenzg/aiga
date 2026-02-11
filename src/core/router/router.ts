@@ -16,6 +16,7 @@
  */
 
 import type { SandboxLevel } from '../types.js';
+import { matchRoute } from './route-matcher.js';
 
 /** Configuration for a single route. */
 export interface RouteConfig {
@@ -215,10 +216,6 @@ export class Router {
     return path;
   }
 
-  private getCurrentQuery(): Record<string, string> {
-    return this.parseQuery(window.location.search);
-  }
-
   private parseQuery(search: string): Record<string, string> {
     const params: Record<string, string> = {};
     const searchParams = new URLSearchParams(search);
@@ -228,15 +225,22 @@ export class Router {
     return params;
   }
 
-  private async navigate(path: string, isReplace: boolean): Promise<void> {
-    // Parse query from path argument (not from window.location which hasn't been updated yet).
+  private parsePathQuery(path: string): Record<string, string> {
     const qIdx = path.indexOf('?');
-    const query = qIdx >= 0 ? this.parseQuery(path.slice(qIdx)) : {};
+    return qIdx >= 0 ? this.parseQuery(path.slice(qIdx)) : {};
+  }
 
-    const matched = this.matchRoute(path, this.routes, [], query);
-
+  /**
+   * Resolve a matched route: run guards, handle redirects, and apply.
+   * Shared by both navigate() and onUrlChange() to avoid duplication.
+   */
+  private async resolveAndApply(
+    matched: MatchedRoute | null,
+    path: string,
+    isReplace: boolean,
+    updateUrl: boolean,
+  ): Promise<void> {
     if (!matched) {
-      // NAV-09: 404 handling.
       this.handleNotFound(path, isReplace);
       return;
     }
@@ -251,22 +255,9 @@ export class Router {
     const allowed = await this.runGuards(matched);
     if (!allowed) return;
 
-    // Update URL. Use pushState/replaceState for both modes to avoid
-    // triggering hashchange/popstate events (which would cause duplicate processing).
-    const fullPath = this.base + path;
-    if (this.mode === 'hash') {
-      const url = window.location.pathname + window.location.search + '#' + path;
-      if (isReplace) {
-        history.replaceState(null, '', url);
-      } else {
-        history.pushState(null, '', url);
-      }
-    } else {
-      if (isReplace) {
-        history.replaceState(null, '', fullPath);
-      } else {
-        history.pushState(null, '', fullPath);
-      }
+    // Update URL if requested (programmatic navigation, not popstate).
+    if (updateUrl) {
+      this.updateUrl(path, isReplace);
     }
 
     // Update current route and notify.
@@ -284,41 +275,34 @@ export class Router {
     }
   }
 
+  private async navigate(path: string, isReplace: boolean): Promise<void> {
+    const query = this.parsePathQuery(path);
+    const matched = matchRoute(path, this.routes, [], query, this.base);
+    await this.resolveAndApply(matched, path, isReplace, true);
+  }
+
   private async onUrlChange(): Promise<void> {
     const path = this.getCurrentPath();
+    const query = this.parsePathQuery(path);
+    const matched = matchRoute(path, this.routes, [], query, this.base);
+    await this.resolveAndApply(matched, path, true, false);
+  }
 
-    // Parse query from the path itself (important for hash mode where
-    // query params are inside the hash fragment, not in window.location.search).
-    const qIdx = path.indexOf('?');
-    const query = qIdx >= 0 ? this.parseQuery(path.slice(qIdx)) : {};
-    const matched = this.matchRoute(path, this.routes, [], query);
-
-    if (!matched) {
-      this.handleNotFound(path, true);
-      return;
-    }
-
-    // Handle redirects.
-    if (matched.config.redirect) {
-      await this.navigate(matched.config.redirect, true);
-      return;
-    }
-
-    // Run guards.
-    const allowed = await this.runGuards(matched);
-    if (!allowed) return;
-
-    const from = this.currentRoute;
-    this.currentRoute = matched;
-
-    this.eventTarget.dispatchEvent(
-      new CustomEvent('route-change', {
-        detail: { to: matched, from },
-      }),
-    );
-
-    for (const hook of this.afterHooks) {
-      hook(matched, from);
+  private updateUrl(path: string, isReplace: boolean): void {
+    if (this.mode === 'hash') {
+      const url = window.location.pathname + window.location.search + '#' + path;
+      if (isReplace) {
+        history.replaceState(null, '', url);
+      } else {
+        history.pushState(null, '', url);
+      }
+    } else {
+      const fullPath = this.base + path;
+      if (isReplace) {
+        history.replaceState(null, '', fullPath);
+      } else {
+        history.pushState(null, '', fullPath);
+      }
     }
   }
 
@@ -330,7 +314,7 @@ export class Router {
         params: {},
         matched: [{ path, app: this.notFoundConfig }],
         fullPath: this.base + path,
-        query: this.getCurrentQuery(),
+        query: this.parseQuery(window.location.search),
         meta: {},
       };
 
@@ -370,124 +354,5 @@ export class Router {
     }
 
     return true;
-  }
-
-  /**
-   * Match a path against the route definitions (NAV-06: supports nested routes).
-   * Returns the matched route with params and full match chain.
-   */
-  private matchRoute(
-    path: string,
-    routes: RouteConfig[],
-    parentChain: RouteConfig[],
-    queryOverride?: Record<string, string>,
-  ): MatchedRoute | null {
-    // Split off query string.
-    const [pathOnly] = path.split('?');
-
-    for (const route of routes) {
-      const params: Record<string, string> = {};
-
-      // Try children first with prefix matching.
-      if (route.children?.length) {
-        const prefixResult = this.matchPrefix(pathOnly, route.path, params);
-        if (prefixResult !== null) {
-          const chain = [...parentChain, route];
-          const remainder = prefixResult || '/';
-          const childMatch = this.matchRoute(remainder, route.children, chain, queryOverride);
-          if (childMatch) {
-            childMatch.params = { ...params, ...childMatch.params };
-            return childMatch;
-          }
-        }
-      }
-
-      // Exact match for leaf routes.
-      const matched = this.matchPath(pathOnly, route.path, params);
-      if (matched) {
-        const chain = [...parentChain, route];
-        return {
-          path: pathOnly,
-          config: route,
-          params,
-          matched: chain,
-          fullPath: this.base + path,
-          query: queryOverride ?? this.getCurrentQuery(),
-          meta: route.meta ?? {},
-        };
-      }
-    }
-
-    return null;
-  }
-
-  /**
-   * Match a URL path against a route pattern.
-   * Supports:
-   * - Static segments: '/dashboard'
-   * - Dynamic params: '/users/:id'
-   * - Wildcards: '/docs/*' (catch-all)
-   */
-  private matchPath(
-    urlPath: string,
-    pattern: string,
-    params: Record<string, string>,
-  ): boolean {
-    const urlParts = urlPath.split('/').filter(Boolean);
-    const patternParts = pattern.split('/').filter(Boolean);
-
-    // Wildcard catch-all.
-    if (patternParts[patternParts.length - 1] === '*') {
-      const staticParts = patternParts.slice(0, -1);
-      if (urlParts.length < staticParts.length) return false;
-      for (let i = 0; i < staticParts.length; i++) {
-        if (staticParts[i].startsWith(':')) {
-          params[staticParts[i].slice(1)] = urlParts[i];
-        } else if (staticParts[i] !== urlParts[i]) {
-          return false;
-        }
-      }
-      params['*'] = urlParts.slice(staticParts.length).join('/');
-      return true;
-    }
-
-    if (urlParts.length !== patternParts.length) return false;
-
-    for (let i = 0; i < patternParts.length; i++) {
-      if (patternParts[i].startsWith(':')) {
-        params[patternParts[i].slice(1)] = urlParts[i];
-      } else if (patternParts[i] !== urlParts[i]) {
-        return false;
-      }
-    }
-
-    return true;
-  }
-
-  /**
-   * Match a URL path as a prefix of a route pattern (for nested routes).
-   * Returns the remainder path if the prefix matches, or null if no match.
-   */
-  private matchPrefix(
-    urlPath: string,
-    pattern: string,
-    params: Record<string, string>,
-  ): string | null {
-    const urlParts = urlPath.split('/').filter(Boolean);
-    const patternParts = pattern.split('/').filter(Boolean);
-
-    if (urlParts.length < patternParts.length) return null;
-
-    for (let i = 0; i < patternParts.length; i++) {
-      if (patternParts[i].startsWith(':')) {
-        params[patternParts[i].slice(1)] = urlParts[i];
-      } else if (patternParts[i] !== urlParts[i]) {
-        return null;
-      }
-    }
-
-    // Return the remaining path segments.
-    const remainder = '/' + urlParts.slice(patternParts.length).join('/');
-    return remainder;
   }
 }
