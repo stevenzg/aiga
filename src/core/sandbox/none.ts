@@ -1,5 +1,7 @@
 import type { SandboxAdapter } from './adapter.js';
 import type { AppInstance } from '../types.js';
+import { fetchAppHtml } from '../utils/fetch-html.js';
+import { setupErrorBoundary, cleanupErrorBoundary, type ErrorHandlers } from '../utils/error-boundary.js';
 
 /**
  * `sandbox="none"` — Direct mount with zero isolation.
@@ -15,16 +17,17 @@ export class NoneSandbox implements SandboxAdapter {
   private containers = new Map<string, HTMLElement>();
   private messageHandlers = new Map<string, Set<(data: unknown) => void>>();
   private listenerCleanups = new Map<string, Set<() => void>>();
-  private errorHandlers = new Map<string, { error: (e: ErrorEvent) => void; rejection: (e: PromiseRejectionEvent) => void }>();
+  private errorHandlers = new Map<string, ErrorHandlers>();
 
   async mount(app: AppInstance, container: HTMLElement): Promise<void> {
     this.containers.set(app.id, container);
 
     // Set up error boundary (ERR-01).
-    this.setupErrorBoundary(app);
+    const handlers = setupErrorBoundary(this.name, app.name);
+    this.errorHandlers.set(app.id, handlers);
 
     // Fetch the sub-app HTML.
-    const html = await this.fetchAppHtml(app.src);
+    const html = await fetchAppHtml(app.src);
 
     // Parse safely using DOMParser instead of innerHTML (prevents XSS).
     const parsed = new DOMParser().parseFromString(html, 'text/html');
@@ -67,7 +70,11 @@ export class NoneSandbox implements SandboxAdapter {
     this.listenerCleanups.delete(app.id);
 
     // Clean up error boundary.
-    this.cleanupErrorBoundary(app.id);
+    const handlers = this.errorHandlers.get(app.id);
+    if (handlers) {
+      cleanupErrorBoundary(handlers);
+      this.errorHandlers.delete(app.id);
+    }
   }
 
   async destroy(app: AppInstance): Promise<void> {
@@ -111,45 +118,5 @@ export class NoneSandbox implements SandboxAdapter {
       unsub();
       cleanups!.delete(unsub);
     };
-  }
-
-  /** Set up global error boundary for uncaught errors (ERR-01). */
-  private setupErrorBoundary(app: AppInstance): void {
-    const onError = (e: ErrorEvent) => {
-      console.error(`[aiga] Uncaught error in none sandbox "${app.name}":`, e.error);
-    };
-    const onRejection = (e: PromiseRejectionEvent) => {
-      console.error(`[aiga] Unhandled rejection in none sandbox "${app.name}":`, e.reason);
-    };
-    window.addEventListener('error', onError);
-    window.addEventListener('unhandledrejection', onRejection);
-    this.errorHandlers.set(app.id, { error: onError, rejection: onRejection });
-  }
-
-  /** Clean up error boundary listeners. */
-  private cleanupErrorBoundary(appId: string): void {
-    const handlers = this.errorHandlers.get(appId);
-    if (handlers) {
-      window.removeEventListener('error', handlers.error);
-      window.removeEventListener('unhandledrejection', handlers.rejection);
-      this.errorHandlers.delete(appId);
-    }
-  }
-
-  private async fetchAppHtml(src: string): Promise<string> {
-    try {
-      const res = await fetch(src);
-      if (!res.ok) throw new Error(`Failed to fetch ${src}: ${res.status}`);
-      return res.text();
-    } catch (err) {
-      // Detect CORS errors (ERR-04).
-      if (err instanceof TypeError && err.message.includes('Failed to fetch')) {
-        throw new Error(
-          `[aiga] CORS error loading "${src}". Ensure the server sends ` +
-          `Access-Control-Allow-Origin headers for this origin.`,
-        );
-      }
-      throw err;
-    }
   }
 }

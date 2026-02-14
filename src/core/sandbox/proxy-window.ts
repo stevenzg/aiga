@@ -14,6 +14,7 @@
  */
 
 import { createTimerTracker } from './timer-tracker.js';
+import { isOverlayElement } from '../utils/overlay-heuristic.js';
 
 export interface ProxyWindowOptions {
   /** The Shadow DOM root to use as the document proxy target. */
@@ -240,7 +241,7 @@ function createBodyProxy(
 
       if (key === 'appendChild') {
         return (node: Node) => {
-          if (node instanceof HTMLElement && isLikelyOverlay(node)) {
+          if (node instanceof HTMLElement && isOverlayElement(node, false)) {
             onOverlayDetected?.(node);
           }
           return target.appendChild(node);
@@ -249,7 +250,7 @@ function createBodyProxy(
 
       if (key === 'insertBefore') {
         return (node: Node, ref: Node | null) => {
-          if (node instanceof HTMLElement && isLikelyOverlay(node)) {
+          if (node instanceof HTMLElement && isOverlayElement(node, false)) {
             onOverlayDetected?.(node);
           }
           return target.insertBefore(node, ref);
@@ -265,27 +266,3 @@ function createBodyProxy(
   });
 }
 
-/**
- * Heuristic to detect overlay-like elements (OV-13).
- * Requires strong signals — position:fixed alone is NOT enough
- * (it could be a header, nav, or sticky sidebar).
- */
-function isLikelyOverlay(el: HTMLElement): boolean {
-  const className = el.className?.toString?.() ?? '';
-  const role = el.getAttribute('role');
-
-  // Semantic role is the strongest signal.
-  if (role === 'dialog' || role === 'tooltip' || role === 'alertdialog') return true;
-
-  // Class name matching for common UI library patterns.
-  if (/\b(modal|overlay|popup|popover|drawer|dropdown|dialog|tooltip|mask|backdrop)\b/i.test(className)) return true;
-
-  // position:fixed + high z-index: likely an overlay, not a header.
-  const style = el.style;
-  if (style.position === 'fixed') {
-    const zIndex = parseInt(style.zIndex, 10);
-    if (!isNaN(zIndex) && zIndex > 1000) return true;
-  }
-
-  return false;
-}

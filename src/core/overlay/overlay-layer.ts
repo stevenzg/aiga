@@ -10,43 +10,7 @@
  * Overlay elements are detected and teleported here so they render correctly.
  */
 
-/**
- * Heuristics to detect overlay elements (OV-13).
- * Requires strong signals — position:fixed alone is NOT enough
- * (it could be a header, nav, or sticky sidebar).
- */
-function isOverlayElement(el: HTMLElement): boolean {
-  const className = el.className?.toString?.() ?? '';
-  const role = el.getAttribute('role');
-
-  // Semantic role is the strongest signal.
-  if (role === 'dialog' || role === 'tooltip' || role === 'alertdialog') {
-    return true;
-  }
-
-  // Class name matching for common UI library patterns.
-  const overlayPatterns =
-    /\b(modal|overlay|popup|popover|drawer|dropdown|dialog|tooltip|mask|backdrop)\b/i;
-  if (overlayPatterns.test(className)) return true;
-
-  // position:fixed + high z-index: likely an overlay, not a header.
-  const style = el.style;
-  if (style.position === 'fixed') {
-    const inlineZ = parseInt(style.zIndex, 10);
-    if (!isNaN(inlineZ) && inlineZ > 1000) return true;
-  }
-
-  // Check computed styles only for connected elements.
-  if (el.isConnected) {
-    const computed = getComputedStyle(el);
-    if (computed.position === 'fixed') {
-      const computedZ = parseInt(computed.zIndex, 10);
-      if (!isNaN(computedZ) && computedZ > 1000) return true;
-    }
-  }
-
-  return false;
-}
+import { isOverlayElement } from '../utils/overlay-heuristic.js';
 
 /**
  * Manages a dedicated overlay layer for a micro-frontend app.

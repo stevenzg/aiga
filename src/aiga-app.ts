@@ -354,7 +354,10 @@ export class AigaAppElement extends HTMLElement {
     this.clearContainer();
     const loading = document.createElement('div');
     loading.className = 'aiga-loading';
-    loading.innerHTML = '<div class="aiga-spinner"></div>Loading application\u2026';
+    const spinner = document.createElement('div');
+    spinner.className = 'aiga-spinner';
+    loading.appendChild(spinner);
+    loading.appendChild(document.createTextNode('Loading application\u2026'));
     this.container.appendChild(loading);
   }
 

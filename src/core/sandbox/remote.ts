@@ -1,14 +1,7 @@
 import type { SandboxAdapter } from './adapter.js';
 import type { AppInstance } from '../types.js';
-
-/** Derive origin from a URL for secure postMessage. Throws on invalid URL. */
-function getOrigin(url: string): string {
-  try {
-    return new URL(url, window.location.href).origin;
-  } catch {
-    throw new Error(`[aiga] Invalid URL for sandbox: ${url}`);
-  }
-}
+import type { IframePool } from '../iframe-pool/pool.js';
+import { deriveOrigin } from '../utils/origin.js';
 
 /**
  * `sandbox="remote"` — Pure iframe with no bridge.
@@ -36,16 +29,22 @@ export class RemoteSandbox implements SandboxAdapter {
   private loadListeners = new Map<string, () => void>();
   private appOrigins = new Map<string, string>();
 
+  constructor(private pool?: IframePool) {}
+
   async mount(app: AppInstance, container: HTMLElement): Promise<void> {
-    const origin = getOrigin(app.src);
+    const origin = deriveOrigin(app.src);
     this.appOrigins.set(app.id, origin);
 
-    // Reuse existing iframe (keepAlive restore) or create new one.
+    // Reuse existing iframe (keepAlive restore) or create/acquire new one.
     let iframe = this.iframes.get(app.id);
     const isRestore = !!iframe;
 
     if (!iframe) {
-      iframe = document.createElement('iframe');
+      if (this.pool) {
+        iframe = this.pool.acquire(app.id);
+      } else {
+        iframe = document.createElement('iframe');
+      }
       iframe.setAttribute('data-aiga-remote', app.name);
       iframe.style.cssText = 'border:none;width:100%;height:100%;min-height:200px;display:block;';
 
@@ -134,8 +133,12 @@ export class RemoteSandbox implements SandboxAdapter {
 
     const iframe = this.iframes.get(app.id);
     if (iframe) {
-      iframe.src = 'about:blank';
-      iframe.remove();
+      if (this.pool) {
+        this.pool.remove(iframe);
+      } else {
+        iframe.src = 'about:blank';
+        iframe.remove();
+      }
       this.iframes.delete(app.id);
     }
     app.iframe = null;
@@ -155,6 +158,13 @@ export class RemoteSandbox implements SandboxAdapter {
   }
 
   onMessage(app: AppInstance, handler: (data: unknown) => void): () => void {
+    // Remove any existing listener for this appId to prevent leaks
+    // when onMessage is called multiple times for the same app.
+    const existingListener = this.messageListeners.get(app.id);
+    if (existingListener) {
+      window.removeEventListener('message', existingListener);
+    }
+
     const iframe = this.iframes.get(app.id);
     const expectedOrigin = this.appOrigins.get(app.id);
     const listener = (e: MessageEvent) => {

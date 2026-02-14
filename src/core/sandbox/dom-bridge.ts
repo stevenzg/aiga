@@ -12,38 +12,42 @@
  * - Document height changes are reported for auto-resize
  */
 
+import { getOverlayHeuristicSource } from '../utils/overlay-heuristic.js';
+
 /**
- * Generate a namespaced storage proxy script block.
- * Reused for both localStorage and sessionStorage (JS-06).
+ * Generate a Proxy-based namespaced storage proxy script block.
+ * Supports property-based access (localStorage['key'], localStorage.key),
+ * Object.keys() enumeration, and for...in iteration (JS-06).
+ * Reused for both localStorage and sessionStorage.
  */
 function storageProxySnippet(storageName: string): string {
   return `
   try {
-    var _real = window.${storageName};
-    var proxy = {
-      getItem: function(key) { return _real.getItem(storagePrefix + key); },
-      setItem: function(key, value) { _real.setItem(storagePrefix + key, value); },
-      removeItem: function(key) { _real.removeItem(storagePrefix + key); },
+    var _real${storageName} = window.${storageName};
+    var ${storageName}Proxy = new Proxy({
+      getItem: function(key) { return _real${storageName}.getItem(storagePrefix + key); },
+      setItem: function(key, value) { _real${storageName}.setItem(storagePrefix + key, value); },
+      removeItem: function(key) { _real${storageName}.removeItem(storagePrefix + key); },
       clear: function() {
         var toRemove = [];
-        for (var i = 0; i < _real.length; i++) {
-          var k = _real.key(i);
+        for (var i = 0; i < _real${storageName}.length; i++) {
+          var k = _real${storageName}.key(i);
           if (k && k.indexOf(storagePrefix) === 0) toRemove.push(k);
         }
-        toRemove.forEach(function(k) { _real.removeItem(k); });
+        toRemove.forEach(function(k) { _real${storageName}.removeItem(k); });
       },
       get length() {
         var count = 0;
-        for (var i = 0; i < _real.length; i++) {
-          var k = _real.key(i);
+        for (var i = 0; i < _real${storageName}.length; i++) {
+          var k = _real${storageName}.key(i);
           if (k && k.indexOf(storagePrefix) === 0) count++;
         }
         return count;
       },
       key: function(index) {
         var count = 0;
-        for (var i = 0; i < _real.length; i++) {
-          var k = _real.key(i);
+        for (var i = 0; i < _real${storageName}.length; i++) {
+          var k = _real${storageName}.key(i);
           if (k && k.indexOf(storagePrefix) === 0) {
             if (count === index) return k.slice(storagePrefix.length);
             count++;
@@ -51,9 +55,45 @@ function storageProxySnippet(storageName: string): string {
         }
         return null;
       }
-    };
+    }, {
+      get: function(target, prop) {
+        if (prop in target) return target[prop];
+        if (typeof prop === 'string') return _real${storageName}.getItem(storagePrefix + prop);
+        return undefined;
+      },
+      set: function(target, prop, value) {
+        if (typeof prop === 'string' && !(prop in target)) {
+          _real${storageName}.setItem(storagePrefix + prop, String(value));
+          return true;
+        }
+        target[prop] = value;
+        return true;
+      },
+      deleteProperty: function(target, prop) {
+        if (typeof prop === 'string' && !(prop in target)) {
+          _real${storageName}.removeItem(storagePrefix + prop);
+          return true;
+        }
+        return true;
+      },
+      ownKeys: function() {
+        var keys = [];
+        for (var i = 0; i < _real${storageName}.length; i++) {
+          var k = _real${storageName}.key(i);
+          if (k && k.indexOf(storagePrefix) === 0) keys.push(k.slice(storagePrefix.length));
+        }
+        return keys;
+      },
+      getOwnPropertyDescriptor: function(target, prop) {
+        if (typeof prop === 'string' && !(prop in target)) {
+          var val = _real${storageName}.getItem(storagePrefix + prop);
+          if (val !== null) return { value: val, writable: true, enumerable: true, configurable: true };
+        }
+        return Object.getOwnPropertyDescriptor(target, prop);
+      }
+    });
     Object.defineProperty(window, '${storageName}', {
-      get: function() { return proxy; },
+      get: function() { return ${storageName}Proxy; },
       configurable: false
     });
   } catch(e) {}`;
@@ -139,19 +179,7 @@ ${storageProxySnippet('sessionStorage')}
   }
 
   // Overlay detection heuristic (OV-13): require strong signals.
-  function isOverlay(el) {
-    if (!(el instanceof HTMLElement)) return false;
-    var cn = el.className ? el.className.toString() : '';
-    var role = el.getAttribute('role');
-    if (role === 'dialog' || role === 'tooltip' || role === 'alertdialog') return true;
-    if (/\\b(modal|overlay|popup|popover|drawer|dropdown|dialog|tooltip|mask|backdrop)\\b/i.test(cn)) return true;
-    var s = el.style;
-    if (s.position === 'fixed') {
-      var z = parseInt(s.zIndex, 10);
-      if (!isNaN(z) && z > 1000) return true;
-    }
-    return false;
-  }
+  ${getOverlayHeuristicSource()}
 
   // Track active overlay count for iframe promotion.
   var activeOverlays = 0;

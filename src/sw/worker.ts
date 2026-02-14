@@ -16,6 +16,15 @@ const sw = self as unknown as ServiceWorkerGlobalScope;
 
 const CACHE_NAME = 'aiga-v1';
 
+/** Cached reference to the open cache to avoid repeated async opens. */
+let cacheRef: Cache | null = null;
+async function getCache(): Promise<Cache> {
+  if (!cacheRef) {
+    cacheRef = await caches.open(CACHE_NAME);
+  }
+  return cacheRef;
+}
+
 type CacheStrategy = 'cache-first' | 'network-first' | 'stale-while-revalidate';
 
 /** Resource types and their default caching strategies. */
@@ -131,7 +140,7 @@ function getStrategy(request: Request): CacheStrategy {
 }
 
 async function cacheFirst(request: Request): Promise<Response> {
-  const cache = await caches.open(CACHE_NAME);
+  const cache = await getCache();
   const cached = await cache.match(request);
   if (cached) return cached;
 
@@ -143,7 +152,7 @@ async function cacheFirst(request: Request): Promise<Response> {
 }
 
 async function networkFirst(request: Request): Promise<Response> {
-  const cache = await caches.open(CACHE_NAME);
+  const cache = await getCache();
   try {
     const response = await fetch(request);
     if (response.ok) {
@@ -158,7 +167,7 @@ async function networkFirst(request: Request): Promise<Response> {
 }
 
 async function staleWhileRevalidate(request: Request): Promise<Response> {
-  const cache = await caches.open(CACHE_NAME);
+  const cache = await getCache();
   const cached = await cache.match(request);
 
   const networkPromise = fetch(request).then((response) => {
@@ -249,20 +258,22 @@ sw.addEventListener('message', (event: ExtendableMessageEvent) => {
 });
 
 async function precacheUrls(urls: string[]): Promise<void> {
-  const cache = await caches.open(CACHE_NAME);
+  const cache = await getCache();
   await cache.addAll(urls);
 }
 
 async function clearCache(): Promise<void> {
   await caches.delete(CACHE_NAME);
+  cacheRef = null;
 }
 
 async function evictUrl(url: string): Promise<void> {
-  const cache = await caches.open(CACHE_NAME);
+  const cache = await getCache();
   await cache.delete(url);
 }
 
 async function cleanupOldCaches(): Promise<void> {
+  // Note: we don't touch cacheRef here since we're only deleting OTHER caches.
   const keys = await caches.keys();
   for (const key of keys) {
     if (key !== CACHE_NAME && key.startsWith('aiga-')) {
