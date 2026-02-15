@@ -113,6 +113,10 @@ export class Router {
   private popstateHandler: (() => void) | null = null;
   private eventTarget = new EventTarget();
   private disposed = false;
+  /** Pre-compiled static route index for O(1) lookups. */
+  private staticRouteIndex = new Map<string, RouteConfig>();
+  /** Pre-split pattern cache to avoid repeated split/filter on each navigation. */
+  private patternCache = new Map<string, string[]>();
 
   constructor(options: RouterOptions) {
     this.routes = options.routes;
@@ -127,6 +131,8 @@ export class Router {
     } else {
       window.addEventListener('popstate', this.popstateHandler);
     }
+
+    this.buildRouteIndex(this.routes);
 
     // Resolve initial route.
     this.onUrlChange();
@@ -216,6 +222,27 @@ export class Router {
     return path;
   }
 
+  private buildRouteIndex(routes: RouteConfig[]): void {
+    this.staticRouteIndex.clear();
+    this.patternCache.clear();
+    this.indexRoutes(routes);
+  }
+
+  private indexRoutes(routes: RouteConfig[]): void {
+    for (const route of routes) {
+      const parts = route.path.split('/').filter(Boolean);
+      this.patternCache.set(route.path, parts);
+      // Index static routes (no params, no wildcards) for O(1) lookup.
+      const isDynamic = parts.some(p => p.startsWith(':') || p === '*');
+      if (!isDynamic && !route.children?.length) {
+        this.staticRouteIndex.set(route.path, route);
+      }
+      if (route.children) {
+        this.indexRoutes(route.children);
+      }
+    }
+  }
+
   private parseQuery(search: string): Record<string, string> {
     const params: Record<string, string> = {};
     const searchParams = new URLSearchParams(search);
@@ -277,15 +304,38 @@ export class Router {
 
   private async navigate(path: string, isReplace: boolean): Promise<void> {
     const query = this.parsePathQuery(path);
-    const matched = matchRoute(path, this.routes, [], query, this.base);
+    // Fast path: O(1) static route lookup before full tree traversal.
+    const matched = this.tryStaticMatch(path, query)
+      ?? matchRoute(path, this.routes, [], query, this.base);
     await this.resolveAndApply(matched, path, isReplace, true);
   }
 
   private async onUrlChange(): Promise<void> {
     const path = this.getCurrentPath();
     const query = this.parsePathQuery(path);
-    const matched = matchRoute(path, this.routes, [], query, this.base);
+    // Fast path: O(1) static route lookup before full tree traversal.
+    const matched = this.tryStaticMatch(path, query)
+      ?? matchRoute(path, this.routes, [], query, this.base);
     await this.resolveAndApply(matched, path, true, false);
+  }
+
+  /** O(1) static route lookup. Returns null for dynamic/nested routes. */
+  private tryStaticMatch(
+    path: string,
+    query: Record<string, string>,
+  ): MatchedRoute | null {
+    const [pathOnly] = path.split('?');
+    const config = this.staticRouteIndex.get(pathOnly);
+    if (!config) return null;
+    return {
+      path: pathOnly,
+      config,
+      params: {},
+      matched: [config],
+      fullPath: this.base + path,
+      query,
+      meta: config.meta ?? {},
+    };
   }
 
   private updateUrl(path: string, isReplace: boolean): void {

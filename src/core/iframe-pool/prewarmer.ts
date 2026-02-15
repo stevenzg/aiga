@@ -50,6 +50,10 @@ export class Prewarmer {
   private prewarmedUrls = new Set<string>();
   private prefetchLinks = new Map<string, HTMLLinkElement>();
   private idleCallbackId: number | null = null;
+  /** Tracks the latest navigation path so idle callbacks use current data. */
+  private lastPath: string | null = null;
+  /** Transition count map: "fromPath → toPath" → count for O(1) lookup. */
+  private transitionCounts = new Map<string, Map<string, number>>();
 
   constructor(pool: IframePool, options?: PrewarmerOptions) {
     this.pool = pool;
@@ -76,6 +80,16 @@ export class Prewarmer {
    * and triggers predictive prewarming in the next idle period.
    */
   recordNavigation(path: string): void {
+    // Update transition counts for O(1) frequency lookup.
+    if (this.lastPath !== null && this.lastPath !== path) {
+      let fromMap = this.transitionCounts.get(this.lastPath);
+      if (!fromMap) {
+        fromMap = new Map();
+        this.transitionCounts.set(this.lastPath, fromMap);
+      }
+      fromMap.set(path, (fromMap.get(path) ?? 0) + 1);
+    }
+
     this.navHistory.push({ path, timestamp: Date.now() });
     this.frequencyCounts.set(
       path,
@@ -87,7 +101,9 @@ export class Prewarmer {
       this.navHistory = this.navHistory.slice(-100);
     }
 
-    this.schedulePrewarm(path);
+    // Store latest path so the idle callback always uses the freshest value.
+    this.lastPath = path;
+    this.schedulePrewarm();
   }
 
   /**
@@ -111,16 +127,16 @@ export class Prewarmer {
       }
     }
 
-    // Strategy 2: Frequency analysis.
+    // Strategy 2: Frequency analysis using precomputed transition counts (O(1) lookup).
     if (this.frequencyAnalysis) {
-      for (let i = 0; i < this.navHistory.length - 1; i++) {
-        if (this.navHistory[i].path === currentPath) {
-          const nextPath = this.navHistory[i + 1].path;
+      const transitions = this.transitionCounts.get(currentPath);
+      if (transitions) {
+        for (const [nextPath, count] of transitions) {
           const nextRoute = this.routeMap.get(nextPath);
           if (nextRoute) {
             candidates.set(
               nextRoute.appSrc,
-              (candidates.get(nextRoute.appSrc) ?? 0) + 5,
+              (candidates.get(nextRoute.appSrc) ?? 0) + count * 5,
             );
           }
         }
@@ -152,15 +168,17 @@ export class Prewarmer {
     this.scheduleResourcePrefetch(urls);
   }
 
-  private schedulePrewarm(currentPath: string): void {
+  private schedulePrewarm(): void {
     // Don't cancel an already-scheduled callback; let it complete to avoid starvation
-    // under rapid navigation. Just update the path for the next invocation.
+    // under rapid navigation. The callback reads this.lastPath for the freshest value.
     if (this.idleCallbackId !== null) return;
 
     this.idleCallbackId = this.requestIdle(() => {
       this.idleCallbackId = null;
 
-      const predictions = this.predict(currentPath);
+      // Use the latest path (not a stale closure capture).
+      if (!this.lastPath) return;
+      const predictions = this.predict(this.lastPath);
       const toPrefetch = predictions.filter((url) => !this.prewarmedUrls.has(url));
 
       if (toPrefetch.length > 0) {
@@ -224,5 +242,7 @@ export class Prewarmer {
     this.prewarmedUrls.clear();
     this.navHistory = [];
     this.frequencyCounts.clear();
+    this.transitionCounts.clear();
+    this.lastPath = null;
   }
 }

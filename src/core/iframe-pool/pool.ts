@@ -23,6 +23,7 @@ const DEFAULT_OPTIONS: Required<IframePoolOptions> = {
  */
 export class IframePool {
   private pool: PooledIframe[] = [];
+  private elementIndex = new Map<HTMLIFrameElement, PooledIframe>();
   private opts: Required<IframePoolOptions>;
   private hostEl: HTMLElement;
   private disposed = false;
@@ -41,7 +42,9 @@ export class IframePool {
   private prewarm(count: number): void {
     for (let i = 0; i < count; i++) {
       if (this.pool.length >= this.opts.maxSize) break;
-      this.pool.push(this.createPooledIframe());
+      const entry = this.createPooledIframe();
+      this.pool.push(entry);
+      this.elementIndex.set(entry.el, entry);
     }
   }
 
@@ -77,6 +80,7 @@ export class IframePool {
       if (this.pool.length < this.opts.maxSize) {
         entry = this.createPooledIframe();
         this.pool.push(entry);
+        this.elementIndex.set(entry.el, entry);
       } else {
         // LRU eviction: recycle the oldest idle iframe.
         entry = this.evictLRU();
@@ -84,6 +88,7 @@ export class IframePool {
           // All at capacity and in use — force-create temporarily.
           entry = this.createPooledIframe();
           this.pool.push(entry);
+          this.elementIndex.set(entry.el, entry);
           console.warn(
             `[aiga] Pool exceeded maxSize (${this.opts.maxSize}). ` +
             `Current size: ${this.pool.length}. Will shrink on release.`,
@@ -110,7 +115,7 @@ export class IframePool {
   /** Return an iframe to the pool for reuse. */
   release(el: HTMLIFrameElement): void {
     if (this.disposed) return;
-    const entry = this.pool.find((p) => p.el === el);
+    const entry = this.elementIndex.get(el);
     if (!entry) return;
 
     entry.inUse = false;
@@ -141,9 +146,11 @@ export class IframePool {
 
   /** Permanently remove an iframe from the pool. */
   remove(el: HTMLIFrameElement): void {
-    const idx = this.pool.findIndex((p) => p.el === el);
+    const entry = this.elementIndex.get(el);
+    if (!entry) return;
+    const idx = this.pool.indexOf(entry);
     if (idx === -1) return;
-    this.destroyEntry(this.pool[idx]);
+    this.destroyEntry(entry);
     this.pool.splice(idx, 1);
     this.replenish();
   }
@@ -184,6 +191,7 @@ export class IframePool {
   }
 
   private destroyEntry(entry: PooledIframe): void {
+    this.elementIndex.delete(entry.el);
     try {
       entry.el.src = 'about:blank';
       entry.el.remove();
@@ -209,6 +217,7 @@ export class IframePool {
       this.destroyEntry(entry);
     }
     this.pool = [];
+    this.elementIndex.clear();
     this.hostEl.remove();
   }
 }

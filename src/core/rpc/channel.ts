@@ -1,17 +1,9 @@
 import type { RpcMessage, RpcCallMessage, RpcResultMessage, RpcErrorMessage, RpcEventMessage, Serializable, Unsubscribe } from './types.js';
+import { deriveOrigin } from '../utils/origin.js';
 
 let rpcIdCounter = 0;
 function nextId(): string {
-  return `rpc_${++rpcIdCounter}_${Date.now().toString(36)}`;
-}
-
-/** Derive the origin from a URL for secure postMessage targeting. Throws on invalid URL. */
-function deriveOrigin(url: string): string {
-  try {
-    return new URL(url, window.location.href).origin;
-  } catch {
-    throw new Error(`[aiga] Invalid URL for RPC target: ${url}`);
-  }
+  return `rpc_${++rpcIdCounter}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function isRpcMessage(data: unknown): data is RpcMessage {

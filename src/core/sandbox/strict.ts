@@ -2,27 +2,8 @@ import type { SandboxAdapter } from './adapter.js';
 import type { AppInstance } from '../types.js';
 import type { IframePool } from '../iframe-pool/pool.js';
 import { setupDomBridge } from './dom-bridge.js';
-
-/** Derive origin from a URL for secure postMessage. Throws on invalid URL. */
-function getOrigin(url: string): string {
-  try {
-    return new URL(url, window.location.href).origin;
-  } catch {
-    throw new Error(`[aiga] Invalid URL for sandbox: ${url}`);
-  }
-}
-
-/** Collect CSS custom properties from :root. */
-function collectCssVariables(): Record<string, string> {
-  const vars: Record<string, string> = {};
-  const rootStyles = getComputedStyle(document.documentElement);
-  for (const prop of rootStyles) {
-    if (prop.startsWith('--')) {
-      vars[prop] = rootStyles.getPropertyValue(prop).trim();
-    }
-  }
-  return vars;
-}
+import { deriveOrigin } from '../utils/origin.js';
+import { collectCssVariables, observeCssVariablesDebounced } from '../utils/css-vars.js';
 
 /** Per-app state managed by the strict sandbox. */
 interface AppState {
@@ -58,11 +39,13 @@ interface AppState {
 export class StrictSandbox implements SandboxAdapter {
   readonly name = 'strict';
   private apps = new Map<string, AppState>();
+  /** Cache of last-sent CSS vars per app to avoid redundant postMessages. */
+  private lastCssVarsJson = new Map<string, string>();
 
   constructor(private pool: IframePool) {}
 
   async mount(app: AppInstance, container: HTMLElement): Promise<void> {
-    const origin = getOrigin(app.src);
+    const origin = deriveOrigin(app.src);
 
     // Create Shadow DOM host for layout encapsulation.
     const host = document.createElement('div');
@@ -172,7 +155,7 @@ export class StrictSandbox implements SandboxAdapter {
 
     // Sync CSS variables on both fresh mount and keep-alive restore (CSS-03).
     // The observer is cleaned up in unmount(), so it must be re-created on restore.
-    this.sendCssVariables(iframe, origin);
+    this.sendCssVariables(app.id, iframe, origin);
     this.observeCssVariables(app.id, state, iframe, origin);
   }
 
@@ -190,6 +173,7 @@ export class StrictSandbox implements SandboxAdapter {
     if (state.messageListener) window.removeEventListener('message', state.messageListener);
     state.bridgeCleanup?.();
     state.cssObserver?.disconnect();
+    this.lastCssVarsJson.delete(app.id);
 
     // Preserve iframe reference for keepAlive restore.
     // Don't release to pool or delete — destroy() handles permanent cleanup.
@@ -235,6 +219,12 @@ export class StrictSandbox implements SandboxAdapter {
   onMessage(app: AppInstance, handler: (data: unknown) => void): () => void {
     const state = this.apps.get(app.id);
     if (!state) return () => {};
+
+    // Remove any existing listener for this appId to prevent leaks
+    // when onMessage is called multiple times for the same app.
+    if (state.messageListener) {
+      window.removeEventListener('message', state.messageListener);
+    }
 
     const listener = (e: MessageEvent) => {
       if (state.iframe.contentWindow && e.source === state.iframe.contentWindow) {
@@ -287,28 +277,35 @@ export class StrictSandbox implements SandboxAdapter {
     console.debug(`[aiga] Iframe demoted: ${appId}`);
   }
 
-  /** Send current CSS variables to iframe via postMessage (CSS-03). */
-  private sendCssVariables(iframe: HTMLIFrameElement, origin: string): void {
+  /**
+   * Send current CSS variables to iframe via postMessage (CSS-03).
+   * Uses diff to avoid redundant messages when variables haven't changed.
+   */
+  private sendCssVariables(appId: string, iframe: HTMLIFrameElement, origin: string): void {
     const vars = collectCssVariables();
+    // Only send if variables actually changed (avoids redundant postMessages).
+    const json = JSON.stringify(vars);
+    if (this.lastCssVarsJson.get(appId) === json) return;
+    this.lastCssVarsJson.set(appId, json);
+
     iframe.contentWindow?.postMessage(
       { __aiga_css_vars: true, vars },
       origin,
     );
   }
 
-  /** Observe :root for CSS variable changes and re-send to iframe (CSS-03). */
+  /**
+   * Observe :root for CSS variable changes and re-send to iframe (CSS-03).
+   * Uses debounced observer (rAF-coalesced) to avoid excessive reflows.
+   */
   private observeCssVariables(
     appId: string,
     state: AppState,
     iframe: HTMLIFrameElement,
     origin: string,
   ): void {
-    const observer = new MutationObserver(() => {
-      this.sendCssVariables(iframe, origin);
-    });
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['style', 'class'],
+    const observer = observeCssVariablesDebounced(() => {
+      this.sendCssVariables(appId, iframe, origin);
     });
     state.cssObserver = observer;
   }
